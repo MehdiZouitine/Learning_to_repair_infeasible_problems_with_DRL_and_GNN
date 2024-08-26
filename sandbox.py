@@ -1,7 +1,12 @@
 import numpy as np
 import numpy as np
 from scipy.optimize import linprog
-from generator_ import check_feasibility, generate_random_lp
+from generator_ import (
+    check_feasibility,
+    generate_random_lp,
+    generate_random_ilp,
+    generate_random_milp,
+)
 
 import numpy as np
 from scipy.optimize import linprog
@@ -101,7 +106,7 @@ def solve_elastic_lp(c, A_ub, b_ub, integrality):
         b_ub=b_ub,
         method="highs",
         bounds=(0, None),
-        integrality=integrality,
+        integrality=np.concatenate((integrality, np.zeros(len(b_ub)))),
     )
 
     Z = result.fun
@@ -126,14 +131,14 @@ if __name__ == "__main__":
 
     # Example usage:
     batch_size = 300
-    n = 20  # number of variables
-    m = 100  # number of constraints
+    n = 5  # number of variables
+    m = 30  # number of constraints
 
     size = []
     n_calls = []
     start = time.time()
     for j in tqdm(range(batch_size)):
-        c_batch, A_ub_batch, b_ub_batch, integrality_batch = generate_random_lp(
+        c_batch, A_ub_batch, b_ub_batch, integrality_batch = generate_random_milp(
             1, n, m, seed=j
         )
         c, A_ub, b_ub, integrality = (
