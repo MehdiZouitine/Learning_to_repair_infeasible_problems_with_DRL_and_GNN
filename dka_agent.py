@@ -9,6 +9,8 @@ from einops import rearrange
 from torch_geometric.data import Data
 from torch.distributions import Categorical
 
+from utils import lp_to_matrix
+
 
 class Normalization(nn.Module):
     """
@@ -155,7 +157,12 @@ class DBAAgent(nn.Module):
         )
         self.device = device
 
-    def get_value(self, x, mask):
+    def get_value(self, constraint_features, edge_features, mask):
+        x = lp_to_matrix(
+            constraint_features=constraint_features,
+            edge_features=edge_features,
+            mask=mask,
+        )
         x = self.projector(x)
         for layer in self.layers:
             x = layer(x)
@@ -163,7 +170,14 @@ class DBAAgent(nn.Module):
         graph_embedding = cons_embedding.mean(dim=1)
         return self.value_head(graph_embedding)
 
-    def get_action_and_value(self, x, mask, action=None):
+    def get_action_and_value(
+        self, constraint_features, edge_features, mask, action=None
+    ):
+        x = lp_to_matrix(
+            constraint_features=constraint_features,
+            edge_features=edge_features,
+            mask=mask,
+        )
         x = self.projector(x)
         for layer in self.layers:
             x = layer(x)
@@ -185,7 +199,12 @@ class DBAAgent(nn.Module):
             value,
         )
 
-    def forward(self, x, mask):
+    def forward(self, constraint_features, edge_features, mask):
+        x = lp_to_matrix(
+            constraint_features=constraint_features,
+            edge_features=edge_features,
+            mask=mask,
+        )
         x = self.projector(x)
         for layer in self.layers:
             x = layer(x)

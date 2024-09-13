@@ -3,23 +3,7 @@ import torch_geometric
 import numpy as np
 import torch.nn as nn
 from torch.distributions import Categorical
-
-
-def lp_to_graph(A_ub, b_ub, c):
-    # given the coefficients of the LP, we can convert it to a bipartite graph
-    # return the constraint features, edge indices, edge features, and variable features
-    # use numpy arrays to represent the LP coefficients
-    num_constraints, num_variables = A_ub.shape
-    constraint_features = b_ub[:, np.newaxis]  # right-hand side of the constraints
-    variable_features = c[:, np.newaxis]  # objective function coefficients
-    edge_indices = np.stack(
-        [
-            np.repeat(np.arange(num_constraints), num_variables),
-            np.tile(np.arange(num_variables), num_constraints),
-        ]
-    )
-    edge_features = A_ub.flatten()[:, np.newaxis]
-    return constraint_features, edge_indices, edge_features, variable_features
+from utils import lp_to_graph
 
 
 def graph_to_pytorch_geometric_data(
@@ -278,12 +262,15 @@ class BipartiteAgent(nn.Module):
         )
         self.device = device
 
-    def get_value(
-        self, left_features, edge_indices, edge_features, right_features, mask
-    ):
+    def get_value(self, constraint_features, edge_features, mask):
         batch_size, n_const = mask.shape
-        constraint_features, variable_features = self.encoder(
-            left_features, edge_indices, edge_features, right_features
+        graph = lp_to_graph(constraint_features, edge_features, mask)
+
+        constraint_features, _ = self.encoder(
+            graph.constraint_features,
+            graph.edge_index,
+            graph.edge_attr,
+            graph.variable_features,
         )
         constraint_features = constraint_features.view(batch_size, n_const, -1)
         graph_embedding = constraint_features.mean(dim=1)
@@ -292,16 +279,18 @@ class BipartiteAgent(nn.Module):
 
     def get_action_and_value(
         self,
-        left_features,
-        edge_indices,
+        constraint_features,
         edge_features,
-        right_features,
         mask,
         action=None,
     ):
         batch_size, n_const = mask.shape
-        constraint_features, variable_features = self.encoder(
-            left_features, edge_indices, edge_features, right_features
+        graph = lp_to_graph(constraint_features, edge_features, mask)
+        constraint_features, _ = self.encoder(
+            graph.constraint_features,
+            graph.edge_index,
+            graph.edge_attr,
+            graph.variable_features,
         )
 
         constraint_features = constraint_features.view(batch_size, n_const, -1)
@@ -323,82 +312,18 @@ class BipartiteAgent(nn.Module):
             value,
         )
 
+    def forward(self, constraint_features, edge_features, mask):
+        batch_size, n_const = mask.shape
+        graph = lp_to_graph(constraint_features, edge_features, mask)
+        constraint_features, _ = self.encoder(
+            graph.constraint_features,
+            graph.edge_index,
+            graph.edge_attr,
+            graph.variable_features,
+        )
 
-class BipartiteNodeData(torch_geometric.data.Data):
-    """
-    This class encode a node bipartite graph observation as returned by the `ecole.observation.NodeBipartite`
-    observation function in a format understood by the pytorch geometric data handlers.
-    """
-
-    def __init__(
-        self,
-        constraint_features,
-        edge_indices,
-        edge_features,
-        variable_features,
-    ):
-        super().__init__()
-        self.constraint_features = constraint_features
-        self.edge_index = edge_indices
-        self.edge_attr = edge_features
-        self.variable_features = variable_features
-
-    def __inc__(self, key, value, store, *args, **kwargs):
-        """
-        We overload the pytorch geometric method that tells how to increment indices when concatenating graphs
-        for those entries (edge index, candidates) for which this is not obvious.
-        """
-        if key == "edge_index":
-            return torch.tensor(
-                [[self.constraint_features.size(0)], [self.variable_features.size(0)]]
-            )
-        elif key == "candidates":
-            return self.variable_features.size(0)
-        else:
-            return super().__inc__(key, value, *args, **kwargs)
-
-
-if __name__ == "__main__":
-    # # create a random bipartite graph
-    # np.random.seed(0)
-    # num_constraints = 5
-    # num_variables = 10
-    # constraint_indices = torch.arange(num_constraints).repeat_interleave(num_variables)
-    # variable_indices = torch.tile(torch.arange(num_variables), (num_constraints,))
-    # edge_indices = torch.stack([constraint_indices, variable_indices])
-    # # Create features for constraints, edges, and variables
-    # # (you can adjust the feature dimensions as needed)
-    # constraint_features = torch.randn(num_constraints, 4)  # 4 features per constraint
-    # edge_features = torch.randn(edge_indices.shape[1], 1)  # 1 feature per edge
-    # variable_features = torch.randn(num_variables, 6)  # 6 features per variable
-
-    # # Use the custom class for the bipartite graph data
-    # bipartite_graph = BipartiteNodeData(
-    #     constraint_features=constraint_features,
-    #     edge_indices=edge_indices,
-    #     edge_features=edge_features,
-    #     variable_features=variable_features,
-    # )
-
-    # output = model(constraint_features, edge_indices, edge_features, variable_features)
-    agent = BipartiteAgent(cons_nfeats=2, edge_nfeats=1, var_nfeats=1, emb_size=64)
-    from env_bipartite import MAXFSEnv
-    from utils import make_parallel_env
-
-    env = make_parallel_env(num_envs=2, base_env=MAXFSEnv, n_ineq_cons=10, n_vars=2)
-    obs, info = env.reset()
-    bipartite_graph = graph_to_pytorch_geometric_data(
-        torch.from_numpy(obs["constraint_features"]).float(),
-        torch.from_numpy(obs["edge_indices"]).long(),
-        torch.from_numpy(obs["edge_features"]).float(),
-        torch.from_numpy(obs["variable_features"]).float(),
-    )
-    print(bipartite_graph.batch)
-    # action, log_prob, entropy, value = agent.get_value(
-    #     bipartite_graph.constraint_features,
-    #     bipartite_graph.edge_index,
-    #     bipartite_graph.edge_attr,
-    #     bipartite_graph.variable_features,
-    #     torch.from_numpy(obs["mask"]).bool(),
-    # )
-    env.close()
+        constraint_features = constraint_features.view(batch_size, n_const, -1)
+        graph_embedding = constraint_features.mean(dim=1)
+        cons_logits = self.policy_head(constraint_features).squeeze(-1)
+        cons_logits = cons_logits.masked_fill_(mask.bool(), float("-inf"))
+        return cons_logits

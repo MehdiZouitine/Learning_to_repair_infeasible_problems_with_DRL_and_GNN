@@ -1,4 +1,5 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppopy
+import torch
 import os
 import random
 import time
@@ -6,17 +7,17 @@ from dataclasses import dataclass
 
 import gymnasium as gym
 import numpy as np
-import torch
+
 import torch.nn as nn
 import torch.optim as optim
 import tyro
-from torch.distributions.categorical import Categorical
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from utils import make_parallel_env
-from env import MAXFSEnv
-from policy import DBAAgent
+from env import MAXFSEnv, MAXSATEnv
+from dka_agent import DBAAgent
+from gcnn_agent import BipartiteAgent
 
 
 @dataclass
@@ -37,7 +38,7 @@ class Args:
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
-    problem_type: str = "LP"
+    """the environment type"""
     # Algorithm specific arguments
     total_timesteps: int = 500000000
     """total timesteps of the experiments"""
@@ -47,10 +48,16 @@ class Args:
     """the number of parallel game environments"""
     num_steps: int = 256
     """the id of the environment"""
-    n_ineq_cons: int = 150
+    n_cons: int = 50
     """the size of the problem"""
-    n_var: int = 30
+    n_var: int = 10
     """the maximum number of generations"""
+    weight: str = "const"
+    """the weight of the constraints"""
+    gnn_architecture: str = "dka"
+    """the architecture of the GNN"""
+    env_type: str = "maxfs"
+    """the environment type"""
     eval_freq: int = 20
     """the evaluation frequency of the model"""
     anneal_lr: bool = True
@@ -59,7 +66,7 @@ class Args:
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the general advantage estimation"""
-    num_minibatches: int = 256
+    num_minibatches: int = 32
     """the number of mini-batches"""
     update_epochs: int = 4
     """the K epochs to update the policy"""
@@ -88,12 +95,11 @@ class Args:
 
 
 if __name__ == "__main__":
-
     args = tyro.cli(Args)
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
-    run_name = f"{args.exp_name}__{args.problem_type}__n_{args.n_var}__m_{args.n_ineq_cons}__{args.seed}__{int(time.time())}"
+    run_name = f"{args.exp_name}__{args.env_type}__{args.gnn_architecture}__c_{args.n_cons}__v_{args.n_var}__{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
 
@@ -121,30 +127,52 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
+    if args.env_type == "maxfs":
+        base_env = MAXFSEnv
+    elif args.env_type == "maxsat":
+        base_env = MAXSATEnv
+    else:
+        raise ValueError("Invalid environment type")
+
     envs = make_parallel_env(
         num_envs=args.num_envs,
-        base_env=MAXFSEnv,
-        n_ineq_cons=args.n_ineq_cons,
-        n_vars=args.n_var,
-        problem_type=args.problem_type,
+        base_env=base_env,
+        n_cons=args.n_cons,
+        n_var=args.n_var,
+        weight=args.weight,
     )
-
-    agent = DBAAgent(
-        input_dim=7,
-        hidden_dim=128,
-        ff_dim=512,
-        k_dim=64,
-        v_dim=64,
-        n_head=3,
-        n_layers=4,
-        device=device,
-    )
+    if args.gnn_architecture == "dka":
+        agent = DBAAgent(
+            input_dim=envs.single_observation_space["edge_features"].shape[-1]
+            + envs.single_observation_space["constraint_features"].shape[-1],
+            hidden_dim=128,
+            ff_dim=512,
+            k_dim=64,
+            v_dim=64,
+            n_head=3,
+            n_layers=4,
+            device=device,
+        )
+    else:
+        agent = BipartiteAgent(
+            cons_nfeats=envs.single_observation_space["constraint_features"].shape[-1],
+            edge_nfeats=envs.single_observation_space["edge_features"].shape[-1],
+            var_nfeats=1,
+            emb_size=128,
+            device=device,
+            n_layers=4,
+        )
 
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
     agent = agent.to(device)
     # ALGO Logic: Storage setup
-    obs_x = torch.zeros(
-        (args.num_steps, args.num_envs) + envs.single_observation_space["matrix"].shape
+    obs_constraint_features = torch.zeros(
+        (args.num_steps, args.num_envs)
+        + envs.single_observation_space["constraint_features"].shape
+    ).to(device)
+    obs_edge_features = torch.zeros(
+        (args.num_steps, args.num_envs)
+        + envs.single_observation_space["edge_features"].shape
     ).to(device)
     obs_mask = torch.zeros(
         (args.num_steps, args.num_envs) + envs.single_observation_space["mask"].shape
@@ -161,7 +189,10 @@ if __name__ == "__main__":
     global_step = 0
     start_time = time.time()
     next_obs, _ = envs.reset(seed=args.seed)
-    next_obs_x = torch.Tensor(next_obs["matrix"]).to(device)
+    next_obs_constraint_features = torch.Tensor(next_obs["constraint_features"]).to(
+        device
+    )
+    next_obs_edge_features = torch.Tensor(next_obs["edge_features"]).to(device)
     next_obs_mask = torch.Tensor(next_obs["mask"]).to(device)
     next_done = torch.zeros(args.num_envs).to(device)
 
@@ -175,14 +206,15 @@ if __name__ == "__main__":
         all_lengths = []
         for step in range(0, args.num_steps):
             global_step += args.num_envs
-            obs_x[step] = next_obs_x
+            obs_constraint_features[step] = next_obs_constraint_features
+            obs_edge_features[step] = next_obs_edge_features
             obs_mask[step] = next_obs_mask
             dones[step] = next_done
 
             # ALGO LOGIC: action logic
             with torch.no_grad():
                 action, logprob, _, value = agent.get_action_and_value(
-                    next_obs_x, next_obs_mask
+                    next_obs_constraint_features, next_obs_edge_features, next_obs_mask
                 )
                 values[step] = value.flatten()
             actions[step] = action
@@ -194,7 +226,10 @@ if __name__ == "__main__":
             )
             next_done = np.logical_or(terminations, truncations)
             rewards[step] = torch.tensor(reward).to(device).view(-1)
-            next_obs_x = torch.Tensor(next_obs["matrix"]).to(device)
+            next_obs_constraint_features = torch.Tensor(
+                next_obs["constraint_features"]
+            ).to(device)
+            next_obs_edge_features = torch.Tensor(next_obs["edge_features"]).to(device)
             next_obs_mask = torch.Tensor(next_obs["mask"]).to(device)
             next_done = torch.Tensor(next_done).to(device)
 
@@ -211,7 +246,9 @@ if __name__ == "__main__":
         )
         # bootstrap value if not done
         with torch.no_grad():
-            next_value = agent.get_value(next_obs_x, next_obs_mask).reshape(1, -1)
+            next_value = agent.get_value(
+                next_obs_constraint_features, next_obs_edge_features, next_obs_mask
+            ).reshape(1, -1)
             advantages = torch.zeros_like(rewards).to(device)
             lastgaelam = 0
             for t in reversed(range(args.num_steps)):
@@ -229,7 +266,12 @@ if __name__ == "__main__":
                 )
             returns = advantages + values
 
-        b_obs_x = obs_x.reshape((-1,) + envs.single_observation_space["matrix"].shape)
+        b_obs_constraint_features = obs_constraint_features.reshape(
+            (-1,) + envs.single_observation_space["constraint_features"].shape
+        )
+        b_obs_edge_features = obs_edge_features.reshape(
+            (-1,) + envs.single_observation_space["edge_features"].shape
+        )
         b_obs_mask = obs_mask.reshape(
             (-1,) + envs.single_observation_space["mask"].shape
         )
@@ -249,7 +291,10 @@ if __name__ == "__main__":
                 mb_inds = b_inds[start:end]
 
                 _, newlogprob, entropy, newvalue = agent.get_action_and_value(
-                    b_obs_x[mb_inds], b_obs_mask[mb_inds], b_actions.long()[mb_inds]
+                    b_obs_constraint_features[mb_inds],
+                    b_obs_edge_features[mb_inds],
+                    b_obs_mask[mb_inds],
+                    b_actions[mb_inds],
                 )
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
@@ -325,10 +370,17 @@ if __name__ == "__main__":
             # for each size measure the average return and the average size of the max feasible set and the time taken to solve the problem
             # we will use the same seed for all the evaluations from 0 to 1000 for the first three sizes and from 0 to 100 for the last two sizes
             env_size = [(2, 10), (5, 20), (10, 50), (20, 100), (30, 150)]
-            eval_envs_list = [
-                MAXFSEnv(n_vars=n, n_ineq_cons=m, problem_type=args.problem_type)
-                for n, m in env_size
-            ]
+            if args.env_type == "maxfs":
+                eval_envs_list = [
+                    MAXFSEnv(n_var=n, n_cons=m, weight=args.weight) for n, m in env_size
+                ]
+            elif args.env_type == "maxsat":
+                eval_envs_list = [
+                    MAXSATEnv(n_var=n, n_cons=m, weight=args.weight)
+                    for n, m in env_size
+                ]
+            else:
+                raise ValueError("Invalid environment type")
             agent.eval()
 
             with torch.no_grad():
@@ -348,7 +400,12 @@ if __name__ == "__main__":
                         total_rewards = 0
                         while not done:
                             logits = agent(
-                                torch.Tensor(obs["matrix"]).unsqueeze(0).to(device),
+                                torch.Tensor(obs["constraint_features"])
+                                .unsqueeze(0)
+                                .to(device),
+                                torch.Tensor(obs["edge_features"])
+                                .unsqueeze(0)
+                                .to(device),
                                 torch.Tensor(obs["mask"]).unsqueeze(0).to(device),
                             )
                             action = torch.argmax(logits, dim=1)
@@ -388,13 +445,13 @@ if __name__ == "__main__":
                     )
                     # save the models in the folder models only when env_size[idx] == (args.n, args.m)
                     if args.save_model:
-                        if env_size[idx] == (args.n_var, args.n_ineq_cons):
+                        if env_size[idx] == (args.n_var, args.n_cons):
                             if args.track:
-                                model_path = f"models/best_model_{wandb.run.id}_{args.problem_type}_{args.n_var}_{args.n_ineq_cons}_{global_step}_{np.mean(cost)}.pth"
+                                model_path = f"models/best_model_{wandb.run.id}_{args.n_var}_{args.n_cons}_{global_step}_{np.mean(cost)}.pth"
                                 wandb.save(model_path)
                                 torch.save(agent.state_dict(), model_path)
                             else:
-                                model_path = f"models/best_model_{args.problem_type}_{args.n_var}_{args.n_ineq_cons}_{global_step}_{np.mean(cost)}.pth"
+                                model_path = f"models/best_model_{args.n_var}_{args.n_cons}_{global_step}_{np.mean(cost)}.pth"
                                 torch.save(agent.state_dict(), model_path)
 
             agent.train()

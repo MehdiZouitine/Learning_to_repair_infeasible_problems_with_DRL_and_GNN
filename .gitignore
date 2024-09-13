@@ -2,3 +2,5 @@ wandb
 models
 runs
 __pycache__
+netlib
+to_delete
