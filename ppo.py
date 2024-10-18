@@ -48,9 +48,9 @@ class Args:
     """the number of parallel game environments"""
     num_steps: int = 256
     """the id of the environment"""
-    n_cons: int = 60
+    n_cons: int = 20
     """the size of the problem"""
-    n_var: int = 3
+    n_var: int = 2
     """the maximum number of generations"""
     weight: str = "const"
     """the weight of the constraints"""
@@ -384,14 +384,15 @@ if __name__ == "__main__":
             else:
                 raise ValueError("Invalid environment type")
             agent.eval()
-
+            num_evals = 300
             with torch.no_grad():
                 print("Evaluating ...")
                 for idx, eval_env in tqdm(enumerate(eval_envs_list)):
-                    if idx < 3:
-                        num_evals = 300
-                    else:
-                        num_evals = 50
+                    if args.env_type == "maxfs":
+                        if idx < 3:
+                            num_evals = 300
+                        else:
+                            num_evals = 50
                     start = time.time()
                     cost = []
                     coverset_size = []
