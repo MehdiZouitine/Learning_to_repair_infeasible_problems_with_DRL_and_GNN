@@ -5,7 +5,7 @@ from utils import (
     lp_to_matrix,
     lp_to_graph,
     check_sat_satisfiability,
-    generate_random_cnf,
+    generate_random_infeasible_cnf,
     cnf_to_matrix,
 )
 import numpy as np
@@ -36,7 +36,9 @@ class MAXFSEnv(gym.Env):
         self.current_set_matrix = np.ones((self.n_cons))
 
         (self.c, self.A_ub, self.b_ub, self.constraint_weight) = (
-            generate_random_infeasible_lp(1, self.n_var, self.n_cons, seed=seed)
+            generate_random_infeasible_lp(
+                1, self.n_var, self.n_cons, weight=self.weight, seed=seed
+            )
         )
 
         self.A_ub = self.A_ub[0]
@@ -102,12 +104,12 @@ class MAXSATEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         self.current_set_matrix = np.ones((self.n_cons))
-        feasible = True
-        while feasible:
-            self.cnf_example, self.constraint_weight = generate_random_cnf(
-                num_clauses=self.n_cons, num_variables=self.n_var, weight=self.weight
-            )
-            feasible = check_sat_satisfiability(self.cnf_example)
+        self.cnf_example, self.constraint_weight = generate_random_infeasible_cnf(
+            num_clauses=self.n_cons,
+            num_variables=self.n_var,
+            weight=self.weight,
+            seed=seed,
+        )
         self.mat = cnf_to_matrix(cnf=self.cnf_example, num_variables=self.n_var)
 
         self.mask = np.zeros(self.n_cons).astype(int)

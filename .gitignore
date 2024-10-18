@@ -4,3 +4,10 @@ runs
 __pycache__
 netlib
 to_delete
+MAXFS
+*.csv
+time_dict.json
+*.ipynb
+*.pdf
+*.ipynb_checkpoints
+*.zip

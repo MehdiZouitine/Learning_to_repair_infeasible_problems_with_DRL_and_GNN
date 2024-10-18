@@ -10,7 +10,50 @@ from tqdm import tqdm
 import time
 
 
-def create_candidate_set(result, activeA, idx2, k=None):
+def solve_elastic_lp(
+    c,
+    A_ub,
+    b_ub,
+    weights,
+):
+    """
+    Solves the elastic LP problem by adjusting elastic variables according to inequality signs.
+
+    Parameters:
+    - c: Objective function coefficients (n,).
+    - A_ub: Inequality constraints coefficients (m, n).
+    - b_ub: Right-hand side of inequality constraints (m,).
+
+    Returns:
+    - result: The result of linprog solver, including solution status and other details.
+    - Z: The optimal value of the objective function.
+    """
+    # Extend the LP to include elastic variables
+    elastic_A_ub = np.concatenate((A_ub.copy(), -np.eye(len(b_ub.copy()))), axis=1)
+    elastic_c = np.concatenate((c * 0, weights))
+
+    result = linprog(
+        elastic_c,
+        A_ub=elastic_A_ub,
+        b_ub=b_ub,
+        method="highs",
+        bounds=(0, None),
+    )
+
+    Z = result.fun
+    return result, Z
+
+
+def elasticfilter(A_ub, b_ub, weights):
+    """
+    Placeholder for the elasticfilter function.
+    This should be replaced with the actual implementation.
+    """
+    result, fval = solve_elastic_lp(np.zeros(A_ub.shape[1]), A_ub, b_ub, weights)
+    return result, fval
+
+
+def create_candidate_set(result, activeA, idx2, k=None, weights=None):
     """
     Creates a candidate set of inequality indices based on the elastic variables.
 
@@ -18,6 +61,7 @@ def create_candidate_set(result, activeA, idx2, k=None):
     - result: The result of the elastic LP solver, containing solution values.
     - activeA: Boolean array indicating active inequalities.
     - idx2: Indices of currently active inequalities.
+    - weights: Weights of the constraints.
 
     Returns:
     - holdset: List of indices for the next candidate set.
@@ -28,7 +72,7 @@ def create_candidate_set(result, activeA, idx2, k=None):
     return holdset
 
 
-def create_candidate_set_1(result, activeA, idx2, k=5):
+def create_candidate_set_1(result, activeA, idx2, k=5, weights=None):
     """
     Creates a candidate set of inequality indices based on the violated constraints approach.
 
@@ -37,6 +81,7 @@ def create_candidate_set_1(result, activeA, idx2, k=5):
     - activeA: Boolean array indicating active inequalities.
     - idx2: Indices of currently active inequalities.
     - k: Limit for the number of candidate constraints to be considered.
+    - weights: Weights of the constraints.
 
     Returns:
     - holdset: List of indices for the next candidate set.
@@ -46,7 +91,7 @@ def create_candidate_set_1(result, activeA, idx2, k=5):
 
     # Compute the product for violated constraints
     violated_constraints = [
-        (idx2[i], elastic_variables[i] * abs(dual_prices[i]))
+        (idx2[i], weights[idx2[i]] * elastic_variables[i] * abs(dual_prices[i]))
         for i in range(len(elastic_variables))
         if elastic_variables[i] > 0
     ]
@@ -58,7 +103,7 @@ def create_candidate_set_1(result, activeA, idx2, k=5):
     return holdset
 
 
-def create_candidate_set_2(result, activeA, idx2, k=5):
+def create_candidate_set_2(result, activeA, idx2, k=5, weights=None):
     """
     Creates a candidate set of inequality indices based on the satisfied constraints approach.
 
@@ -67,6 +112,7 @@ def create_candidate_set_2(result, activeA, idx2, k=5):
     - activeA: Boolean array indicating active inequalities.
     - idx2: Indices of currently active inequalities.
     - k: Limit for the number of candidate constraints to be considered.
+    - weights: Weights of the constraints.
 
     Returns:
     - holdset: List of indices for the next candidate set.
@@ -76,7 +122,7 @@ def create_candidate_set_2(result, activeA, idx2, k=5):
 
     # Compute the absolute dual prices for satisfied constraints
     satisfied_constraints = [
-        (idx2[i], abs(dual_prices[i]))
+        (idx2[i], weights[idx2[i]] * abs(dual_prices[i]))
         for i in range(len(elastic_variables))
         if elastic_variables[i] == 0 and abs(dual_prices[i]) > 0
     ]
@@ -88,7 +134,7 @@ def create_candidate_set_2(result, activeA, idx2, k=5):
     return holdset
 
 
-def generate_cover(A_ub, b_ub, create_candidate_set_func, k=5):
+def generate_cover(A_ub, b_ub, create_candidate_set_func, k=5, weights=None):
     """
     Returns the cover set of linear inequalities and the total number of calls to linprog.
 
@@ -97,6 +143,7 @@ def generate_cover(A_ub, b_ub, create_candidate_set_func, k=5):
     - b_ub: Right-hand side of inequality constraints (m,).
     - create_candidate_set_func: Callable function to create the candidate set.
     - k: Limit for the number of candidate constraints to be considered.
+    - weights: Weights of the constraints.
 
     Returns:
     - coverset: Indices of the cover set inequalities.
@@ -105,11 +152,13 @@ def generate_cover(A_ub, b_ub, create_candidate_set_func, k=5):
 
     coverset = []
     activeA = np.ones(len(b_ub), dtype=bool)
-    result, fval = elasticfilter(A_ub, b_ub)
+    result, fval = elasticfilter(A_ub, b_ub, weights)
     nlp = 1
 
     # Use the provided candidate set creation function
-    holdset = create_candidate_set_func(result, activeA, np.arange(len(b_ub)), k)
+    holdset = create_candidate_set_func(
+        result, activeA, np.arange(len(b_ub)), k, weights
+    )
 
     if len(holdset) == 1:
         return holdset, nlp
@@ -126,7 +175,9 @@ def generate_cover(A_ub, b_ub, create_candidate_set_func, k=5):
             activeA[candidate[i]] = False
             idx2 = np.where(activeA)[0]
 
-            result, fval = elasticfilter(A_ub[activeA, :], b_ub[activeA])
+            result, fval = elasticfilter(
+                A_ub[activeA, :], b_ub[activeA], weights[activeA]
+            )
             nlp += 1
 
             if fval == 0:
@@ -137,7 +188,7 @@ def generate_cover(A_ub, b_ub, create_candidate_set_func, k=5):
                 winner = candidate[i]
                 minsinf = fval
                 holdset = create_candidate_set_func(
-                    result, activeA, idx2, k
+                    result, activeA, idx2, k, weights
                 )  # Call the provided function
 
                 if len(holdset) == 1:
@@ -157,55 +208,14 @@ def generate_cover(A_ub, b_ub, create_candidate_set_func, k=5):
     return coverset, nlp
 
 
-def solve_elastic_lp(
-    c,
-    A_ub,
-    b_ub,
-):
-    """
-    Solves the elastic LP problem by adjusting elastic variables according to inequality signs.
-
-    Parameters:
-    - c: Objective function coefficients (n,).
-    - A_ub: Inequality constraints coefficients (m, n).
-    - b_ub: Right-hand side of inequality constraints (m,).
-
-    Returns:
-    - result: The result of linprog solver, including solution status and other details.
-    - Z: The optimal value of the objective function.
-    """
-    # Extend the LP to include elastic variables
-    elastic_A_ub = np.concatenate((A_ub.copy(), -np.eye(len(b_ub.copy()))), axis=1)
-    elastic_c = np.concatenate((c * 0, np.ones(len(b_ub))))
-
-    result = linprog(
-        elastic_c,
-        A_ub=elastic_A_ub,
-        b_ub=b_ub,
-        method="highs",
-        bounds=(0, None),
-    )
-
-    Z = result.fun
-    return result, Z
-
-
-def elasticfilter(A_ub, b_ub):
-    """
-    Placeholder for the elasticfilter function.
-    This should be replaced with the actual implementation.
-    """
-    result, fval = solve_elastic_lp(np.zeros(A_ub.shape[1]), A_ub, b_ub)
-    return result, fval
-
-
-def big_m_coverset(A, b):
+def big_m_coverset(A, b, weights):
     """
     Implement the big M method to find the MIN IIS COVER (coverset).
 
     Parameters:
     - A: Coefficient matrix for inequality constraints (m x n)
     - b: Right-hand side vector for inequality constraints (m)
+    - weights: Weights of the constraints
 
     Returns:
     - coverset: Indices of constraints in the MIN IIS COVER
@@ -213,9 +223,9 @@ def big_m_coverset(A, b):
     m, n = A.shape
     M = 1e6  # Big M value, adjust as needed
 
-    # Objective: Minimize sum of y variables
+    # Objective: Minimize sum of y variables, considering weights
     c = np.zeros(n + m)
-    c[n:] = 1
+    c[n:] = weights
 
     # Constraints matrix
     A_constraint = np.hstack([A, -M * np.eye(m)])
@@ -245,10 +255,10 @@ def big_m_coverset(A, b):
     return coverset, None
 
 
-def grow(A, b):
+def grow(A, b, weights):
     """Start with a single constraint, and add constraints one by one.
     When a newly added constraint triggers infeasibility, discard it.
-    This is the grow method used by Bailey and Stuckey (2005) to find maximal fea- sible subsystems.
+    This is the grow method used by Bailey and Stuckey (2005) to find maximal feasible subsystems.
     """
     # use check_feasibility to check feasibility
     m, n = A.shape
@@ -264,7 +274,7 @@ def grow(A, b):
     return coverset, m
 
 
-def compute_baseline(batch_size, c, v, method_name):
+def compute_baseline(batch_size, c, v, method_name, weights="const"):
     """
     Computes the performance and time taken for a specific method over a batch of instances.
 
@@ -288,33 +298,37 @@ def compute_baseline(batch_size, c, v, method_name):
         method = big_m_coverset
     elif method_name == "Chinneck":
 
-        def method(A_ub, b_ub):
-            return generate_cover(A_ub, b_ub, create_candidate_set, k=2)
+        def method(A_ub, b_ub, weights):
+            return generate_cover(
+                A_ub, b_ub, create_candidate_set, k=2, weights=weights
+            )
     elif method_name == "Chinneck-Fast":
 
-        def method(A_ub, b_ub):
-            return generate_cover(A_ub, b_ub, create_candidate_set_1, k=2)
+        def method(A_ub, b_ub, weights):
+            return generate_cover(
+                A_ub, b_ub, create_candidate_set_1, k=2, weights=weights
+            )
     else:
         raise ValueError("Invalid method name provided.")
 
     for j in tqdm(range(batch_size)):
         # Generate random infeasible LP
-        c_batch, A_ub_batch, b_ub_batch, constraint_weight = (
-            generate_random_infeasible_lp(1, v, c, seed=j)
+        c_batch, A_ub_batch, b_ub_batch, constraint_weight_batch = (
+            generate_random_infeasible_lp(1, v, c, weight=weights, seed=j)
         )
-        _, A_ub, b_ub, _ = (
+        _, A_ub, b_ub, constraint_weight = (
             c_batch[0],
             A_ub_batch[0],
             b_ub_batch[0],
-            constraint_weight[0],
+            constraint_weight_batch[0],
         )
 
         # Measure time taken for the method
         start = time.time()
-        coverset, _ = method(A_ub, b_ub)
+        coverset, _ = method(A_ub, b_ub, constraint_weight)
         end = time.time()
 
-        size.append(len(coverset))
+        size.append(constraint_weight[coverset].sum())
         times.append(end - start)
 
     avg_size = np.mean(size)
@@ -328,4 +342,8 @@ if __name__ == "__main__":
     from tqdm import tqdm
     import time
 
-    print(compute_baseline(10, c=1000, v=80, method_name="Chinneck-Fast"))
+    print(
+        compute_baseline(
+            300, c=150, v=30, method_name="Chinneck-Fast", weights="uniform"
+        )
+    )

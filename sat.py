@@ -1,5 +1,6 @@
 from pysat.examples.rc2 import RC2
 from pysat.formula import WCNF
+import random
 
 
 def maxsat(cnf_formula, weights):
@@ -12,17 +13,19 @@ def maxsat(cnf_formula, weights):
 
 
 if __name__ == "__main__":
-    from utils import check_sat_satisfiability, generate_random_cnf
+    from utils import check_sat_satisfiability, generate_random_infeasible_cnf
     import numpy as np
     from tqdm import tqdm
 
-    batch_size = 300
-    num_clauses = 150
-    num_variables = 10
+    batch_size = 10
+    num_clauses = 20
+    num_variables = 2
     all_cost = []
     k = 0
     while k < batch_size:
-        cnf, weight = generate_random_cnf(num_clauses, num_variables)
+        cnf, weight = generate_random_infeasible_cnf(
+            num_clauses, num_variables, weight="const", seed=k
+        )
         if check_sat_satisfiability(cnf):
             continue
         k += 1

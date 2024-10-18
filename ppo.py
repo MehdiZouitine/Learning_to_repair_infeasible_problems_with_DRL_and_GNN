@@ -48,15 +48,15 @@ class Args:
     """the number of parallel game environments"""
     num_steps: int = 256
     """the id of the environment"""
-    n_cons: int = 50
+    n_cons: int = 60
     """the size of the problem"""
-    n_var: int = 10
+    n_var: int = 3
     """the maximum number of generations"""
     weight: str = "const"
     """the weight of the constraints"""
-    gnn_architecture: str = "dka"
+    gnn_architecture: str = "gcnn"
     """the architecture of the GNN"""
-    env_type: str = "maxfs"
+    env_type: str = "maxsat"
     """the environment type"""
     eval_freq: int = 20
     """the evaluation frequency of the model"""
@@ -66,7 +66,7 @@ class Args:
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the general advantage estimation"""
-    num_minibatches: int = 32
+    num_minibatches: int = 4
     """the number of mini-batches"""
     update_epochs: int = 4
     """the K epochs to update the policy"""
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
-    run_name = f"{args.exp_name}__{args.env_type}__{args.gnn_architecture}__c_{args.n_cons}__v_{args.n_var}__{args.seed}__{int(time.time())}"
+    run_name = f"{args.exp_name}__{args.env_type}__{args.gnn_architecture}__w_{args.weight}__c_{args.n_cons}__v_{args.n_var}__{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
 
@@ -369,12 +369,14 @@ if __name__ == "__main__":
             # The number of evaluations per size depend on the problem size (1000 for (2,10),(5,20),and (10,50), 100 for (15,10) and (30,150))
             # for each size measure the average return and the average size of the max feasible set and the time taken to solve the problem
             # we will use the same seed for all the evaluations from 0 to 1000 for the first three sizes and from 0 to 100 for the last two sizes
-            env_size = [(2, 10), (5, 20), (10, 50), (20, 100), (30, 150)]
+
             if args.env_type == "maxfs":
+                env_size = [(2, 10), (5, 20), (10, 50), (20, 100), (30, 150)]
                 eval_envs_list = [
                     MAXFSEnv(n_var=n, n_cons=m, weight=args.weight) for n, m in env_size
                 ]
             elif args.env_type == "maxsat":
+                env_size = [(2, 20), (4, 40), (3, 60), (5, 100), (10, 200)]
                 eval_envs_list = [
                     MAXSATEnv(n_var=n, n_cons=m, weight=args.weight)
                     for n, m in env_size

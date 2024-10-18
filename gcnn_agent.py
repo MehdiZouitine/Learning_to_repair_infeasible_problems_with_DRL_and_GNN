@@ -323,7 +323,7 @@ class BipartiteAgent(nn.Module):
         )
 
         constraint_features = constraint_features.view(batch_size, n_const, -1)
-        graph_embedding = constraint_features.mean(dim=1)
+        # graph_embedding = constraint_features.mean(dim=1)
         cons_logits = self.policy_head(constraint_features).squeeze(-1)
         cons_logits = cons_logits.masked_fill_(mask.bool(), float("-inf"))
         return cons_logits

@@ -205,21 +205,24 @@ def check_sat_satisfiability(cnf_formula):
     return is_satisfiable
 
 
-def generate_random_cnf(num_clauses, num_variables, weight="const"):
+def generate_random_cnf(num_clauses, num_variables, weight="const", seed=None):
     """
-    Generates a random CNF formula.
+    Generates a random CNF formula with specified parameters and returns the formula along with its weights.
 
     Args:
-    num_clauses (int): Number of clauses in the CNF.
-    max_literals (int): Maximum number of literals per clause.
-    num_variables (int): Number of different variables used in the CNF.
+    num_clauses (int): Number of clauses.
+    num_variables (int): Number of different variables.
+    weight (str): If 'const', weights are constant, otherwise they are randomly generated.
+    seed (int, optional): Random seed for reproducibility.
 
     Returns:
-    list of lists: A CNF formula represented as a list of clauses,
-                   where each clause is a list of integers.
+    tuple: A CNF formula represented as a list of clauses, and corresponding weights.
     """
-    cnf = []
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
 
+    cnf = []
     for _ in range(num_clauses):
         num_literals_in_clause = random.randint(
             1, num_variables
@@ -233,11 +236,45 @@ def generate_random_cnf(num_clauses, num_variables, weight="const"):
             if -literal not in clause:
                 clause.add(literal)
         cnf.append(list(clause))
+
     if weight == "const":
-        weight = np.ones(num_clauses)
+        weights = np.ones(num_clauses)
     else:
-        weight = np.random.uniform(0, 1, num_clauses)
-    return cnf, weight
+        weights = np.random.uniform(0, 1, num_clauses)
+
+    return cnf, weights
+
+
+def generate_random_infeasible_cnf(
+    num_clauses, num_variables, weight="const", seed=None
+):
+    """
+    Generates a random infeasible CNF formula using the given parameters and ensures the formula is infeasible.
+
+    Args:
+    num_clauses (int): Number of clauses.
+    num_variables (int): Number of different variables.
+    weight (str): If 'const', weights are constant, otherwise they are randomly generated.
+    seed (int, optional): Random seed for reproducibility.
+
+    Returns:
+    tuple: An infeasible CNF formula and corresponding weights.
+    """
+    feasible = True
+    k = 0
+    while feasible:
+        if seed is not None:
+            current_seed = k * 10000 + seed  # Multiplying to derive a new seed
+        else:
+            current_seed = None
+
+        cnf, weights = generate_random_cnf(
+            num_clauses, num_variables, weight, seed=current_seed
+        )
+        feasible = check_sat_satisfiability(cnf)  # Function to check satisfiability
+        k += 1
+
+    return cnf, weights
 
 
 def cnf_to_matrix(cnf, num_variables):
