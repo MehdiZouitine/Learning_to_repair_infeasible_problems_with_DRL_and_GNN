@@ -290,6 +290,7 @@ def compute_baseline(batch_size, c, v, method_name, weights="const"):
     """
     size = []
     times = []
+    nlp = []
 
     # Define the method based on the method_name
     if method_name == "Deletion":
@@ -325,25 +326,56 @@ def compute_baseline(batch_size, c, v, method_name, weights="const"):
 
         # Measure time taken for the method
         start = time.time()
-        coverset, _ = method(A_ub, b_ub, constraint_weight)
+        coverset, current_nlp = method(A_ub, b_ub, constraint_weight)
         end = time.time()
 
         size.append(constraint_weight[coverset].sum())
         times.append(end - start)
+        nlp.append(current_nlp)
 
     avg_size = np.mean(size)
     std_size = np.std(size)
     avg_time = np.mean(times)
+    if method_name == "big_m":
+        avg_nlp = None
+    else:
+        avg_nlp = np.mean(nlp)
 
-    return avg_size, std_size, avg_time
+    return avg_size, std_size, avg_time, avg_nlp
 
 
 if __name__ == "__main__":
     from tqdm import tqdm
     import time
+    import pandas as pd
 
-    print(
-        compute_baseline(
-            300, c=150, v=30, method_name="Chinneck-Fast", weights="uniform"
-        )
-    )
+    instance_sizes = [
+        (10, 2),
+        (20, 5),
+        (50, 10),
+        (100, 20),
+        (150, 30),
+        (200, 40),
+        (300, 60),
+    ]
+    instance_sizes_name = [
+        "c10v2",
+        "c20v5",
+        "c50v10",
+        "c100v20",
+        "c150v30",
+        "c200v40",
+        "c300v60",
+    ]
+    methods = ["Chinneck", "Chinneck-Fast"]
+    batch_size = 10
+    # create a pandas dataset where each row corresponds to an instances size and each column corresponds to a method
+    data = pd.DataFrame(columns=methods, index=instance_sizes_name)
+    for m in methods:
+        for c, v in instance_sizes:
+            avg_size, std_size, avg_time, avg_nlp = compute_baseline(
+                batch_size, c, v, m, weights="uniform"
+            )
+            data.loc[f"c{c}v{v}", m] = avg_nlp
+            print(f"Method: {m}, Instance: c{c}v{v} : Avg nlp: {avg_nlp}")
+    data.to_csv("avg_nlp.csv")

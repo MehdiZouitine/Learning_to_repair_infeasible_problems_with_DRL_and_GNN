@@ -328,4 +328,4 @@ if __name__ == "__main__":
     from tqdm import tqdm
     import time
 
-    print(compute_baseline(10, c=1000, v=80, method_name="Chinneck-Fast"))
+    print(compute_baseline(10, c=50, v=10, method_name="Chinneck-Fast"))

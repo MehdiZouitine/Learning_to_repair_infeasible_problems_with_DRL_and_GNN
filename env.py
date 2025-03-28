@@ -84,7 +84,7 @@ class MAXFSEnv(gym.Env):
 
 
 class MAXSATEnv(gym.Env):
-    def __init__(self, n_cons, n_var, weight="const"):
+    def __init__(self, n_cons, n_var, k_max, weight="const"):
         self.n_cons = n_cons
         self.action_space = gym.spaces.Discrete(n_cons)
         self.observation_space = gym.spaces.Dict(
@@ -101,6 +101,7 @@ class MAXSATEnv(gym.Env):
 
         self.n_var = n_var
         self.weight = weight
+        self.k_max = k_max
 
     def reset(self, seed=None, options=None):
         self.current_set_matrix = np.ones((self.n_cons))
@@ -108,6 +109,7 @@ class MAXSATEnv(gym.Env):
             num_clauses=self.n_cons,
             num_variables=self.n_var,
             weight=self.weight,
+            k_max=self.k_max,
             seed=seed,
         )
         self.mat = cnf_to_matrix(cnf=self.cnf_example, num_variables=self.n_var)
@@ -160,7 +162,7 @@ if __name__ == "__main__":
     # print(
     #     obs["constraint_features"].shape, obs["edge_features"].shape, obs["mask"].shape
     # )
-    env = MAXFSEnv(150, 30, weight="weight")
+    env = MAXSATEnv(15, 3, k_max=3, weight="const")
     # obs, info = env2.reset()
     # print(
     #     obs["constraint_features"].shape, obs["edge_features"].shape, obs["mask"].shape
@@ -181,28 +183,28 @@ if __name__ == "__main__":
     print(np.mean(all_r))
     print(np.std(all_r))
 
-    vec_env = make_parallel_env(num_envs=20, base_env=MAXFSEnv, n_cons=10, n_var=2)
-    obs, info = vec_env.reset()
-    matrix = lp_to_matrix(
-        constraint_features=torch.from_numpy(obs["constraint_features"]).float(),
-        edge_features=torch.from_numpy(obs["edge_features"]).float(),
-        mask=torch.from_numpy(obs["mask"]).bool(),
-    )
-    graph = lp_to_graph(
-        constraint_features=torch.from_numpy(obs["constraint_features"]).float(),
-        edge_features=torch.from_numpy(obs["edge_features"]).float(),
-        mask=torch.from_numpy(obs["mask"]).bool(),
-    )
-    print(graph)
-    vec_env = make_parallel_env(num_envs=20, base_env=MAXSATEnv, n_cons=10, n_var=2)
-    obs, info = vec_env.reset()
-    matrix = lp_to_matrix(
-        constraint_features=torch.from_numpy(obs["constraint_features"]).float(),
-        edge_features=torch.from_numpy(obs["edge_features"]).float(),
-        mask=torch.from_numpy(obs["mask"]).bool(),
-    )
-    graph = lp_to_graph(
-        constraint_features=torch.from_numpy(obs["constraint_features"]).float(),
-        edge_features=torch.from_numpy(obs["edge_features"]).float(),
-        mask=torch.from_numpy(obs["mask"]).bool(),
-    )
+    # vec_env = make_parallel_env(num_envs=20, base_env=MAXFSEnv, n_cons=10, n_var=2)
+    # obs, info = vec_env.reset()
+    # matrix = lp_to_matrix(
+    #     constraint_features=torch.from_numpy(obs["constraint_features"]).float(),
+    #     edge_features=torch.from_numpy(obs["edge_features"]).float(),
+    #     mask=torch.from_numpy(obs["mask"]).bool(),
+    # )
+    # graph = lp_to_graph(
+    #     constraint_features=torch.from_numpy(obs["constraint_features"]).float(),
+    #     edge_features=torch.from_numpy(obs["edge_features"]).float(),
+    #     mask=torch.from_numpy(obs["mask"]).bool(),
+    # )
+    # print(graph)
+    # vec_env = make_parallel_env(num_envs=20, base_env=MAXSATEnv, n_cons=10, n_var=2)
+    # obs, info = vec_env.reset()
+    # matrix = lp_to_matrix(
+    #     constraint_features=torch.from_numpy(obs["constraint_features"]).float(),
+    #     edge_features=torch.from_numpy(obs["edge_features"]).float(),
+    #     mask=torch.from_numpy(obs["mask"]).bool(),
+    # )
+    # graph = lp_to_graph(
+    #     constraint_features=torch.from_numpy(obs["constraint_features"]).float(),
+    #     edge_features=torch.from_numpy(obs["edge_features"]).float(),
+    #     mask=torch.from_numpy(obs["mask"]).bool(),
+    # )

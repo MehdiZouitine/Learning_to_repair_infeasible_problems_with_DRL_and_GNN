@@ -34,7 +34,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""
     save_model: bool = True
     """if toggled, this experiment will save the model in wandb every K iterations"""
-    wandb_project_name: str = "MaxFSRL"
+    wandb_project_name: str = "MaxFS_rebuttal"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
@@ -48,13 +48,15 @@ class Args:
     """the number of parallel game environments"""
     num_steps: int = 256
     """the id of the environment"""
-    n_cons: int = 20
+    n_cons: int = 50
     """the size of the problem"""
-    n_var: int = 2
+    n_var: int = 10
     """the maximum number of generations"""
+    k_max: int = 3
+    """the maximum number of literals per clause"""
     weight: str = "const"
     """the weight of the constraints"""
-    gnn_architecture: str = "gcnn"
+    gnn_architecture: str = "dka"
     """the architecture of the GNN"""
     env_type: str = "maxsat"
     """the environment type"""
@@ -66,7 +68,7 @@ class Args:
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the general advantage estimation"""
-    num_minibatches: int = 4
+    num_minibatches: int = 32
     """the number of mini-batches"""
     update_epochs: int = 4
     """the K epochs to update the policy"""
@@ -99,7 +101,7 @@ if __name__ == "__main__":
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
-    run_name = f"{args.exp_name}__{args.env_type}__{args.gnn_architecture}__w_{args.weight}__c_{args.n_cons}__v_{args.n_var}__{args.seed}__{int(time.time())}"
+    run_name = f"{args.exp_name}__{args.env_type}__{args.gnn_architecture}__w_{args.weight}__c_{args.n_cons}__v_{args.n_var}__k_{args.k_max}_{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
 
@@ -129,18 +131,26 @@ if __name__ == "__main__":
 
     if args.env_type == "maxfs":
         base_env = MAXFSEnv
+        envs = make_parallel_env(
+            num_envs=args.num_envs,
+            base_env=base_env,
+            n_cons=args.n_cons,
+            n_var=args.n_var,
+            weight=args.weight,
+        )
     elif args.env_type == "maxsat":
         base_env = MAXSATEnv
+        envs = make_parallel_env(
+            num_envs=args.num_envs,
+            base_env=base_env,
+            n_cons=args.n_cons,
+            n_var=args.n_var,
+            k_max=args.k_max,
+            weight=args.weight,
+        )
     else:
         raise ValueError("Invalid environment type")
 
-    envs = make_parallel_env(
-        num_envs=args.num_envs,
-        base_env=base_env,
-        n_cons=args.n_cons,
-        n_var=args.n_var,
-        weight=args.weight,
-    )
     if args.gnn_architecture == "dka":
         agent = DBAAgent(
             input_dim=envs.single_observation_space["edge_features"].shape[-1]
@@ -204,7 +214,7 @@ if __name__ == "__main__":
             optimizer.param_groups[0]["lr"] = lrnow
         all_returns = []
         all_lengths = []
-        for step in range(0, args.num_steps):
+        for step in tqdm(range(0, args.num_steps)):
             global_step += args.num_envs
             obs_constraint_features[step] = next_obs_constraint_features
             obs_edge_features[step] = next_obs_edge_features
@@ -233,12 +243,14 @@ if __name__ == "__main__":
             next_obs_mask = torch.Tensor(next_obs["mask"]).to(device)
             next_done = torch.Tensor(next_done).to(device)
 
-            if "final_info" in infos:
-                for info in infos["final_info"]:
-                    if info and "episode" in info:
-                        all_returns.append(info["episode"]["r"])
-                        all_lengths.append(info["episode"]["l"])
-
+            if "episode" in infos:
+                current_episode = infos["episode"]
+                current_episode_reward = current_episode["r"]
+                current_episode_end = current_episode["_r"]
+                for i in range(len(current_episode_reward)):
+                    if current_episode_end[i]:
+                        all_returns.append(current_episode_reward[i])
+                        all_lengths.append(current_episode["l"][i])
         writer.add_scalar("charts/episodic_return", np.mean(all_returns), global_step)
         writer.add_scalar("charts/episodic_length", np.mean(all_lengths), global_step)
         print(
@@ -284,7 +296,7 @@ if __name__ == "__main__":
         # Optimizing the policy and value network
         b_inds = np.arange(args.batch_size)
         clipfracs = []
-        for epoch in range(args.update_epochs):
+        for epoch in tqdm(range(args.update_epochs)):
             np.random.shuffle(b_inds)
             for start in range(0, args.batch_size, args.minibatch_size):
                 end = start + args.minibatch_size
@@ -376,10 +388,16 @@ if __name__ == "__main__":
                     MAXFSEnv(n_var=n, n_cons=m, weight=args.weight) for n, m in env_size
                 ]
             elif args.env_type == "maxsat":
-                env_size = [(2, 20), (4, 40), (3, 60), (5, 100), (10, 200)]
+                env_size = [
+                    (3, 19, 3),
+                    (10, 50, 3),
+                    (15, 75, 3),
+                    (20, 91, 3),
+                    (50, 218, 3),
+                ]
                 eval_envs_list = [
-                    MAXSATEnv(n_var=n, n_cons=m, weight=args.weight)
-                    for n, m in env_size
+                    MAXSATEnv(n_var=n, n_cons=m, weight=args.weight, k_max=k)
+                    for n, m, k in env_size
                 ]
             else:
                 raise ValueError("Invalid environment type")

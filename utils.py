@@ -9,6 +9,7 @@ import random
 from pysat.solvers import Solver
 from pysat.examples.rc2 import RC2
 from pysat.formula import WCNF
+from tqdm import tqdm
 
 BASE_SEED = 10000
 
@@ -189,6 +190,38 @@ def check_lp_feasibility(A_ub, b_ub):
     return not res.status == 2
 
 
+def generate_random_cnf(num_clauses, num_variables, weight="const", seed=None, k_max=3):
+    """
+    Generates a random mixed k-SAT CNF formula, where clause lengths vary between 2 and N.
+
+    Args:
+    N (int): Number of variables.
+    L (int): Number of clauses.
+
+    Returns:
+    list: CNF formula represented as a list of clauses.
+    """
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+    cnf = []
+    for _ in range(num_clauses):
+        # k = random.randint(2, k_max)  # Random clause size between 2 and N
+        k = k_max
+        # Sample k distinct variables (without replacement)
+        variables = random.sample(range(1, num_variables + 1), k)
+
+        # Randomly negate each variable
+        clause = [var if random.choice([True, False]) else -var for var in variables]
+
+        cnf.append(clause)
+    if weight == "const":
+        weights = np.ones(num_clauses)
+    else:
+        weights = np.random.uniform(0, 1, num_clauses)
+    return cnf, weights
+
+
 def check_sat_satisfiability(cnf_formula):
     """
     Check if the given CNF formula is satisfiable.
@@ -205,48 +238,48 @@ def check_sat_satisfiability(cnf_formula):
     return is_satisfiable
 
 
-def generate_random_cnf(num_clauses, num_variables, weight="const", seed=None):
-    """
-    Generates a random CNF formula with specified parameters and returns the formula along with its weights.
+# def generate_random_cnf(num_clauses, num_variables, weight="const", seed=None):
+#     """
+#     Generates a random CNF formula with specified parameters and returns the formula along with its weights.
 
-    Args:
-    num_clauses (int): Number of clauses.
-    num_variables (int): Number of different variables.
-    weight (str): If 'const', weights are constant, otherwise they are randomly generated.
-    seed (int, optional): Random seed for reproducibility.
+#     Args:
+#     num_clauses (int): Number of clauses.
+#     num_variables (int): Number of different variables.
+#     weight (str): If 'const', weights are constant, otherwise they are randomly generated.
+#     seed (int, optional): Random seed for reproducibility.
 
-    Returns:
-    tuple: A CNF formula represented as a list of clauses, and corresponding weights.
-    """
-    if seed is not None:
-        random.seed(seed)
-        np.random.seed(seed)
+#     Returns:
+#     tuple: A CNF formula represented as a list of clauses, and corresponding weights.
+#     """
+#     if seed is not None:
+#         random.seed(seed)
+#         np.random.seed(seed)
 
-    cnf = []
-    for _ in range(num_clauses):
-        num_literals_in_clause = random.randint(
-            1, num_variables
-        )  # At least 1 literal per clause
-        clause = set()
-        while len(clause) < num_literals_in_clause:
-            variable = random.randint(1, num_variables)
-            is_negated = random.choice([True, False])
-            literal = -variable if is_negated else variable
-            # Ensure no x and -x in the same clause
-            if -literal not in clause:
-                clause.add(literal)
-        cnf.append(list(clause))
+#     cnf = []
+#     for _ in range(num_clauses):
+#         num_literals_in_clause = random.randint(
+#             1, num_variables
+#         )  # At least 1 literal per clause
+#         clause = set()
+#         while len(clause) < num_literals_in_clause:
+#             variable = random.randint(1, num_variables)
+#             is_negated = random.choice([True, False])
+#             literal = -variable if is_negated else variable
+#             # Ensure no x and -x in the same clause
+#             if -literal not in clause:
+#                 clause.add(literal)
+#         cnf.append(list(clause))
 
-    if weight == "const":
-        weights = np.ones(num_clauses)
-    else:
-        weights = np.random.uniform(0, 1, num_clauses)
+#     if weight == "const":
+#         weights = np.ones(num_clauses)
+#     else:
+#         weights = np.random.uniform(0, 1, num_clauses)
 
-    return cnf, weights
+#     return cnf, weights
 
 
 def generate_random_infeasible_cnf(
-    num_clauses, num_variables, weight="const", seed=None
+    num_clauses, num_variables, weight="const", seed=None, k_max=3
 ):
     """
     Generates a random infeasible CNF formula using the given parameters and ensures the formula is infeasible.
@@ -269,7 +302,11 @@ def generate_random_infeasible_cnf(
             current_seed = None
 
         cnf, weights = generate_random_cnf(
-            num_clauses, num_variables, weight, seed=current_seed
+            num_clauses,
+            num_variables,
+            weight,
+            seed=current_seed,
+            k_max=k_max,
         )
         feasible = check_sat_satisfiability(cnf)  # Function to check satisfiability
         k += 1
@@ -307,41 +344,14 @@ def cnf_to_matrix(cnf, num_variables):
 
 if __name__ == "__main__":
     # Parameters
-    n = 2  # Number of variables
-    m = 10  # Number of inequality constraints
+    n = 15  # Number of variables
+    m = 225  # Number of inequality constraints
     num_instances = 1000
 
     # Generate and check multiple instances
     feasible_count = 0
     infeasible_count = 0
 
-    for _ in range(num_instances):
-        (c, A_ub, b_ub, constraint_weight) = generate_random_lp(1, n, m)
-        feasible = check_lp_feasibility(A_ub[0], b_ub[0])
-        if feasible:
-            feasible_count += 1
-        else:
-            infeasible_count += 1
-    print(f"Feasible instances: {feasible_count}")
-    print(f"Infeasible instances: {infeasible_count}")
-    # batch_size, n, m = 1, 2, 4
-    # c, A_ub, b_ub = generate_random_lp(batch_size, n, m)
-    # bipartite_graphs = lp_to_graph(A_ub, b_ub, c)
-
-    # # from bipartite import Encoder
-
-    # print(bipartite_graphs.x_s.shape)
-    # print(bipartite_graphs.x_t.shape)
-    # print(bipartite_graphs.edge_attr.shape)
-    # print(bipartite_graphs.edge_index)
-
-    # # encoder = Encoder(1, 1, 2, 16)
-
-    # # x_s, x_t = encoder(
-    # #     bipartite_graphs.x_s,
-    # #     bipartite_graphs.x_t,
-    # #     bipartite_graphs.edge_index,
-    # #     bipartite_graphs.edge_attr,
-    # #     bipartite_graphs.batch,
-    # # )
-    # # print(x_s.shape, x_t.shape)
+    for _ in tqdm(range(num_instances)):
+        cnf, weights = generate_random_infeasible_cnf(m, n, weight="const")
+        print(check_sat_satisfiability(cnf))
