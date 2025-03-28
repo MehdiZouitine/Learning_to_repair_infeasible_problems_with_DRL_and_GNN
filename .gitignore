@@ -11,3 +11,4 @@ time_dict.json
 *.pdf
 *.ipynb_checkpoints
 *.zip
+data/*
