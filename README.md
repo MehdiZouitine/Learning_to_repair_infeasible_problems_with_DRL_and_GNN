@@ -39,4 +39,5 @@ This work explores infeasible problems. It focuses on using deep reinforcement l
 <div align="center">
   <img src="images/architecture.png" alt="Repair example" width="600"/>
   <br>
-  <b>Figure 4
+  <b>Figure 3:</b> The general framework of applying GNNs policy to repair CSP involves converting the problem into a bipartite graph. Each pair of node and edge in the graph is assigned an initial embedding, which is iteratively updated through a message passing process. Finally, the policy outputs a score for each constraint.
+</div>
