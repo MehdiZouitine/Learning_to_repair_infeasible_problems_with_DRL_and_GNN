@@ -37,6 +37,7 @@ representation of 2 CSPs : Linear Feasibility Problem (LF) and Boolean Satisfiab
   
 
 - We use Graph Neural Networks (GNNs) to learn representations of the constraints within a CSP and a DRL algorithm, Proximal Policy Optimization (PPO), to learn a repair policy in both linear and Boolean domains.
+- 
 <figure style="text-align: center;">
   <img src="images/architecture.png" alt="Repair example" width="600"/>
   <figcaption><b>Figure 1:</b> The general framework of applying GNNs policy to repair a CSP involves converting the problem into a bipartite graph. Each pair of node and edge in the graph is assigned an initial embedding, which is iteratively updated through a message passing process. Finally, the policy outputs a score for each constraint.</figcaption>
