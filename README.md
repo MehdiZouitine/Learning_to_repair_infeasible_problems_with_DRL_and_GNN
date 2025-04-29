@@ -41,3 +41,14 @@ This work explores infeasible problems. It focuses on using deep reinforcement l
   <br>
   <b>Figure 3:</b> The general framework of applying GNNs policy to repair CSP involves converting the problem into a bipartite graph. Each pair of node and edge in the graph is assigned an initial embedding, which is iteratively updated through a message passing process. Finally, the policy outputs a score for each constraint.
 </div>
+
+## Running Experiments
+
+To train and evaluate our model, you can use the provided configuration files.
+
+### Example
+
+You can launch an experiment using:
+
+```bash
+python train.py --config configs/repair_config.yaml
