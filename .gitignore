@@ -2,13 +2,8 @@ wandb
 models
 runs
 __pycache__
-netlib
-to_delete
 MAXFS
 *.csv
-time_dict.json
 *.ipynb
-*.pdf
-*.ipynb_checkpoints
-*.zip
-data/*
+*.ipynb_checkpoint
+*egg-info
