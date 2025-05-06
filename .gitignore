@@ -6,4 +6,4 @@ MAXFS
 *.csv
 *.ipynb
 *.ipynb_checkpoint
-*egg-info
+LearningToRepairDRL.egg-info
