@@ -9,6 +9,7 @@ from typing import Optional, Tuple
 
 from utils import lp_to_matrix
 
+# code implemented from https://link.springer.com/chapter/10.1007/978-3-031-60599-4_21
 
 class Normalization(nn.Module):
     """
