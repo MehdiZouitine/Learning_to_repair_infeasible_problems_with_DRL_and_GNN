@@ -345,37 +345,37 @@ def compute_baseline(batch_size, c, v, method_name, weights="const"):
 
 
 if __name__ == "__main__":
-    from tqdm import tqdm
-    import time
-    import pandas as pd
+    # from tqdm import tqdm
+    # import time
+    # import pandas as pd
 
-    instance_sizes = [
-        (10, 2),
-        (20, 5),
-        (50, 10),
-        (100, 20),
-        (150, 30),
-        (200, 40),
-        (300, 60),
-    ]
-    instance_sizes_name = [
-        "c10v2",
-        "c20v5",
-        "c50v10",
-        "c100v20",
-        "c150v30",
-        "c200v40",
-        "c300v60",
-    ]
-    methods = ["Chinneck", "Chinneck-Fast"]
-    batch_size = 10
-    # create a pandas dataset where each row corresponds to an instances size and each column corresponds to a method
-    data = pd.DataFrame(columns=methods, index=instance_sizes_name)
-    for m in methods:
-        for c, v in instance_sizes:
-            avg_size, std_size, avg_time, avg_nlp = compute_baseline(
-                batch_size, c, v, m, weights="uniform"
-            )
-            data.loc[f"c{c}v{v}", m] = avg_nlp
-            print(f"Method: {m}, Instance: c{c}v{v} : Avg nlp: {avg_nlp}")
-    data.to_csv("avg_nlp.csv")
+    # instance_sizes = [
+    #     (10, 2),
+    #     (20, 5),
+    #     (50, 10),
+    #     (100, 20),
+    #     (150, 30),
+    #     (200, 40),
+    #     (300, 60),
+    # ]
+    # instance_sizes_name = [
+    #     "c10v2",
+    #     "c20v5",
+    #     "c50v10",
+    #     "c100v20",
+    #     "c150v30",
+    #     "c200v40",
+    #     "c300v60",
+    # ]
+    # methods = ["Chinneck", "Chinneck-Fast"]
+    # batch_size = 10
+    # # create a pandas dataset where each row corresponds to an instances size and each column corresponds to a method
+    # data = pd.DataFrame(columns=methods, index=instance_sizes_name)
+    # for m in methods:
+    #     for c, v in instance_sizes:
+    #         avg_size, std_size, avg_time, avg_nlp = compute_baseline(
+    #             batch_size, c, v, m, weights="uniform"
+    #         )
+    #         data.loc[f"c{c}v{v}", m] = avg_nlp
+    #         print(f"Method: {m}, Instance: c{c}v{v} : Avg nlp: {avg_nlp}")
+    # data.to_csv("avg_nlp.csv")

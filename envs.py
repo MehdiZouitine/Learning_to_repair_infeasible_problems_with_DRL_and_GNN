@@ -2,8 +2,6 @@ import gymnasium as gym
 from utils import (
     generate_random_infeasible_lp,
     check_lp_feasibility,
-    lp_to_matrix,
-    lp_to_graph,
     check_sat_satisfiability,
     generate_random_infeasible_cnf,
     cnf_to_matrix,

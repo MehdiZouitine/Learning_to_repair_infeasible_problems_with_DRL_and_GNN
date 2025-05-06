@@ -5,29 +5,6 @@ import torch.nn as nn
 from torch.distributions import Categorical
 from utils import lp_to_graph
 
-
-def graph_to_pytorch_geometric_data(
-    constraint_features, edge_indices, edge_features, variable_features
-):
-    # convert a batch of constraint features, edge indices, edge features, and variable features into a Batch of PyTorch Geometric Data objects
-    # constraint_features: (batch_size, num_constraints, num_features)
-    # edge_indices: (batch_size, 2, num_edges)
-    # edge_features: (batch_size, num_edges, num_edge_features)
-    # variable_features: (batch_size, num_variables, num_features)
-    batch_size, num_constraints, num_features = constraint_features.shape
-    batch = []
-    for b in range(batch_size):
-        batch.append(
-            BipartiteNodeData(
-                constraint_features=constraint_features[b],
-                edge_indices=edge_indices[b],
-                edge_features=edge_features[b],
-                variable_features=variable_features[b],
-            )
-        )
-    return torch_geometric.data.Batch.from_data_list(batch)
-
-
 class GNNEncoder(torch.nn.Module):
     def __init__(self, cons_nfeats, edge_nfeats, var_nfeats, emb_size, n_layers=4):
         super().__init__()

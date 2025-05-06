@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from utils import make_parallel_env
-from env import MAXFSEnv, MAXSATEnv
+from Learning_to_repair_infeasible_problems_with_DRL_and_GNN.envs import MAXFSEnv, MAXSATEnv
 from dka_agent import DBAAgent
 from gcnn_agent import BipartiteAgent
 
