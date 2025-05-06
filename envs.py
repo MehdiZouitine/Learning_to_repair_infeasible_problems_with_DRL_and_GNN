@@ -7,13 +7,29 @@ from utils import (
     cnf_to_matrix,
 )
 import numpy as np
+from typing import Optional, Tuple, Dict
 
 BASE_SEED = 10000
 
 
 class MAXFSEnv(gym.Env):
-    def __init__(self, n_cons, n_var, weight="const"):
+    """
+    MAXFS Environment (Maximum Feasible Subsystem) for LP problems.
+
+    Observation space:
+        - edge_features: [n_cons, n_var, 1]
+        - constraint_features: [n_cons, 3] -> [weight, RHS scaled, active]
+        - mask: binary mask for chosen constraints
+
+    Action space:
+        - Discrete selection of constraints to remove.
+    """
+
+    def __init__(self, n_cons: int, n_var: int, weight: str = "const"):
         self.n_cons = n_cons
+        self.n_var = n_var
+        self.weight = weight
+
         self.action_space = gym.spaces.Discrete(n_cons)
         self.observation_space = gym.spaces.Dict(
             {
@@ -27,47 +43,63 @@ class MAXFSEnv(gym.Env):
             }
         )
 
-        self.n_var = n_var
-        self.weight = weight
+    def reset(self, seed: Optional[int] = None, options=None) -> Tuple[Dict, Dict]:
+        """
+        Reset environment with new random infeasible LP.
 
-    def reset(self, seed=None, options=None):
+        Returns:
+            observation, info dict (empty).
+        """
         self.current_set_matrix = np.ones((self.n_cons))
 
-        (self.c, self.A_ub, self.b_ub, self.constraint_weight) = (
-            generate_random_infeasible_lp(
-                1, self.n_var, self.n_cons, weight=self.weight, seed=seed
-            )
+        self.c, self.A_ub, self.b_ub, self.constraint_weight = generate_random_infeasible_lp(
+            1, self.n_var, self.n_cons, weight=self.weight, seed=seed
         )
-
         self.A_ub = self.A_ub[0]
         self.b_ub = self.b_ub[0]
         self.constraint_weight = self.constraint_weight[0]
-        self.mask = np.zeros(self.n_cons).astype(int)
+
+        self.mask = np.zeros(self.n_cons, dtype=int)
+
         self.edge_features = self.A_ub[:, :, np.newaxis].copy() / 100
 
         self.constraint_features = np.zeros((self.n_cons, 3))
         self.constraint_features[:, 0] = self.constraint_weight
         self.constraint_features[:, 1] = self.b_ub / 100
         self.constraint_features[:, 2] = self.current_set_matrix
+
         return {
             "edge_features": self.edge_features,
             "constraint_features": self.constraint_features,
             "mask": self.mask,
         }, {}
 
-    def step(self, action):
+    def step(self, action: int) -> Tuple[Dict, float, bool, bool, Dict]:
+        """
+        Remove a constraint and check feasibility.
+
+        Reward is the negative weight of the removed constraint.
+
+        Returns:
+            observation, reward, done, truncated, info
+        """
         self.mask[action] = 1
+
         current_set = set(np.argwhere(self.current_set_matrix == 1).flatten())
-        current_set_without_action = list(current_set.difference({action}))
+        current_set_without_action = list(current_set - {action})
+
         feasible = check_lp_feasibility(
             self.A_ub[current_set_without_action, :],
             self.b_ub[current_set_without_action],
         )
         done = feasible or np.all(self.mask == 1)
         reward = -self.constraint_weight[action]
+
         if not feasible:
             self.current_set_matrix[action] = 0
+
         self.constraint_features[:, 2] = self.current_set_matrix
+
         return (
             {
                 "edge_features": self.edge_features,
@@ -82,8 +114,24 @@ class MAXFSEnv(gym.Env):
 
 
 class MAXSATEnv(gym.Env):
-    def __init__(self, n_cons, n_var, k_max, weight="const"):
+    """
+    MAXSAT Environment for CNF SAT problems.
+
+    Observation space:
+        - edge_features: [n_cons, n_var, 1]
+        - constraint_features: [n_cons, 2] -> [weight, active]
+        - mask: binary mask for chosen clauses
+
+    Action space:
+        - Discrete selection of clauses to remove.
+    """
+
+    def __init__(self, n_cons: int, n_var: int, k_max: int, weight: str = "const"):
         self.n_cons = n_cons
+        self.n_var = n_var
+        self.k_max = k_max
+        self.weight = weight
+
         self.action_space = gym.spaces.Discrete(n_cons)
         self.observation_space = gym.spaces.Dict(
             {
@@ -97,12 +145,15 @@ class MAXSATEnv(gym.Env):
             }
         )
 
-        self.n_var = n_var
-        self.weight = weight
-        self.k_max = k_max
+    def reset(self, seed: Optional[int] = None, options=None) -> Tuple[Dict, Dict]:
+        """
+        Reset environment with a new random infeasible CNF.
 
-    def reset(self, seed=None, options=None):
+        Returns:
+            observation, info dict (empty).
+        """
         self.current_set_matrix = np.ones((self.n_cons))
+
         self.cnf_example, self.constraint_weight = generate_random_infeasible_cnf(
             num_clauses=self.n_cons,
             num_variables=self.n_var,
@@ -110,32 +161,48 @@ class MAXSATEnv(gym.Env):
             k_max=self.k_max,
             seed=seed,
         )
+
         self.mat = cnf_to_matrix(cnf=self.cnf_example, num_variables=self.n_var)
 
-        self.mask = np.zeros(self.n_cons).astype(int)
+        self.mask = np.zeros(self.n_cons, dtype=int)
+
         self.edge_features = self.mat[:, :, np.newaxis].copy()
 
         self.constraint_features = np.zeros((self.n_cons, 2))
         self.constraint_features[:, 0] = self.constraint_weight
         self.constraint_features[:, 1] = self.current_set_matrix
+
         return {
             "edge_features": self.edge_features,
             "constraint_features": self.constraint_features,
             "mask": self.mask,
         }, {}
 
-    def step(self, action):
+    def step(self, action: int) -> Tuple[Dict, float, bool, bool, Dict]:
+        """
+        Remove a clause and check satisfiability.
+
+        Reward is the negative weight of the removed clause.
+
+        Returns:
+            observation, reward, done, truncated, info
+        """
         self.mask[action] = 1
+
         current_set = set(np.argwhere(self.current_set_matrix == 1).flatten())
-        current_set_without_action = list(current_set.difference({action}))
+        current_set_without_action = list(current_set - {action})
+
         feasible = check_sat_satisfiability(
             [self.cnf_example[i] for i in current_set_without_action]
         )
         done = feasible or np.all(self.mask == 1)
         reward = -self.constraint_weight[action]
+
         if not feasible:
             self.current_set_matrix[action] = 0
+
         self.constraint_features[:, 1] = self.current_set_matrix
+
         return (
             {
                 "edge_features": self.edge_features,
@@ -151,20 +218,10 @@ class MAXSATEnv(gym.Env):
 
 if __name__ == "__main__":
     from tqdm import tqdm
-    from utils import make_parallel_env
-    import torch
 
-    # env = MAXSATEnv(50, 20, weight="weight")
-    # obs, info = env.reset()
     all_r = []
-    # print(
-    #     obs["constraint_features"].shape, obs["edge_features"].shape, obs["mask"].shape
-    # )
+
     env = MAXSATEnv(15, 3, k_max=3, weight="const")
-    # obs, info = env2.reset()
-    # print(
-    #     obs["constraint_features"].shape, obs["edge_features"].shape, obs["mask"].shape
-    # )
 
     for _ in tqdm(range(100)):
         obs, info = env.reset()
@@ -178,31 +235,6 @@ if __name__ == "__main__":
             r += reward
             k += 1
         all_r.append(r)
-    print(np.mean(all_r))
-    print(np.std(all_r))
 
-    # vec_env = make_parallel_env(num_envs=20, base_env=MAXFSEnv, n_cons=10, n_var=2)
-    # obs, info = vec_env.reset()
-    # matrix = lp_to_matrix(
-    #     constraint_features=torch.from_numpy(obs["constraint_features"]).float(),
-    #     edge_features=torch.from_numpy(obs["edge_features"]).float(),
-    #     mask=torch.from_numpy(obs["mask"]).bool(),
-    # )
-    # graph = lp_to_graph(
-    #     constraint_features=torch.from_numpy(obs["constraint_features"]).float(),
-    #     edge_features=torch.from_numpy(obs["edge_features"]).float(),
-    #     mask=torch.from_numpy(obs["mask"]).bool(),
-    # )
-    # print(graph)
-    # vec_env = make_parallel_env(num_envs=20, base_env=MAXSATEnv, n_cons=10, n_var=2)
-    # obs, info = vec_env.reset()
-    # matrix = lp_to_matrix(
-    #     constraint_features=torch.from_numpy(obs["constraint_features"]).float(),
-    #     edge_features=torch.from_numpy(obs["edge_features"]).float(),
-    #     mask=torch.from_numpy(obs["mask"]).bool(),
-    # )
-    # graph = lp_to_graph(
-    #     constraint_features=torch.from_numpy(obs["constraint_features"]).float(),
-    #     edge_features=torch.from_numpy(obs["edge_features"]).float(),
-    #     mask=torch.from_numpy(obs["mask"]).bool(),
-    # )
+    print(f"Mean episodic reward: {np.mean(all_r)}")
+    print(f"Std episodic reward: {np.std(all_r)}")

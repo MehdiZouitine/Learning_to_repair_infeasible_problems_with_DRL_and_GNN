@@ -1,4 +1,4 @@
-# docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppopy
+# Code inspired from cleanRL ppo implementation: https://github.com/vwxyzjn/cleanrl
 import torch
 import os
 import random
@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from utils import make_parallel_env
-from Learning_to_repair_infeasible_problems_with_DRL_and_GNN.envs import MAXFSEnv, MAXSATEnv
+from envs import MAXFSEnv, MAXSATEnv
 from dka_agent import DBAAgent
 from gcnn_agent import BipartiteAgent
 
@@ -34,7 +34,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""
     save_model: bool = True
     """if toggled, this experiment will save the model in wandb every K iterations"""
-    wandb_project_name: str = "MaxFS_rebuttal"
+    wandb_project_name: str = "Learning_to_repair_infeasible_problems_with_DRL_and_GNN"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
@@ -47,11 +47,11 @@ class Args:
     num_envs: int = 64
     """the number of parallel game environments"""
     num_steps: int = 256
-    """the id of the environment"""
+    """the number of steps per rollout"""
     n_cons: int = 50
-    """the size of the problem"""
+    """the number of constraints"""
     n_var: int = 10
-    """the maximum number of generations"""
+    """the number of variables"""
     k_max: int = 3
     """the maximum number of literals per clause"""
     weight: str = "const"
