@@ -1,3 +1,4 @@
+# code inspired by the code of Maxime Gasse : https://github.com/ds4dm/learn2branch-ecole
 import torch
 import torch.nn as nn
 import torch_geometric
@@ -7,7 +8,6 @@ from typing import Optional, Tuple
 
 from utils import lp_to_graph
 
-# Inspired by the code of Maxime Gasse : https://github.com/ds4dm/learn2branch-ecole
 class PreNormException(Exception):
     """
     Custom exception used for interrupting forward passes during pre-normalization stats collection.

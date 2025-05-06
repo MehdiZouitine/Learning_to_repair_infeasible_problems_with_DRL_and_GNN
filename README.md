@@ -53,11 +53,10 @@ pip install -e .
 mkdir models
 ```
 
-To train and evaluate our model, you can use the provided configuration files.
+## Example
 
-### Example
-
-You can launch an experiment using:
+You can launch an experiment by training an agent on one distribution and evaluating it on another.  
+Use the `--track` flag to enable Weights & Biases (wandb) logging.
 
 ```bash
 # MAXFS experiments
