@@ -4,12 +4,12 @@
 
 This repository contains the official code and resources for the paper **"Learning to Repair Infeasible∗ Problems with Deep Reinforcement Learning on Graphs"**, presented at LION 19.
 
-## Overview
+## 🛠️ Overview 
 
 This work explores infeasible problems. It focuses on using deep reinforcement learning (DRL) not to solve a given problem, but to repair infeasible problem instances. Indeed, some constraint problems can become infeasible due to contradictory or inconsistent constraints. We use bipartite graph neural networks to represent the interactions among these inconsistent constraints. We use deep reinforcement learning, which is used to directly and automatically develop effective repair heuristics. To the best of our knowledge, this approach is the first step toward the automated analysis of infeasibility and the systematic repair of problematic instances from a DRL perspective.
 
 
-## Key Contributions
+## 🎯 Key Contributions
 
 - **We formalize the repair of a Constraint Satisfaction Problem (CSP) as a shortest path problem**.
 
@@ -43,7 +43,7 @@ This work explores infeasible problems. It focuses on using deep reinforcement l
   <b>Figure 4:</b> The general framework of applying GNNs policy to repair CSP involves converting the problem into a bipartite graph. Each pair of node and edge in the graph is assigned an initial embedding, which is iteratively updated through a message passing process. Finally, the policy outputs a score for each constraint.
 </div>
 
-## Running Experiments
+## ⚙️ Running Experiments
 
 First clone the repo and install requirements:
 ```bash 
@@ -53,7 +53,7 @@ pip install -e .
 mkdir models
 ```
 
-## Example
+### Example
 
 You can launch an experiment by training an agent on one distribution and evaluating it on another.  
 Use the `--track` flag to enable Weights & Biases (wandb) logging.
@@ -89,6 +89,9 @@ python train.py --env_type maxsat --gnn_architecture gcnn --weight uniform --num
 
 ```
 
-## Acknowledgment 
+## 🙏 Acknowledgment 
 
 We acknowledge the support of the IRT Saint Exupéry MINDS project.
+
+## 📜 Citation
+It will be available once the paper is officially published.
