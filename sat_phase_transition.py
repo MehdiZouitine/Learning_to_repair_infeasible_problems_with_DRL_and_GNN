@@ -69,18 +69,6 @@ def generate_mixed_k_sat(N, L, k_max, seed=None):
     return cnf
 
 
-# # Example Usage
-# N = 10  # Number of variables
-# L = 20  # Number of clauses
-# k = 3  # k-SAT parameter
-
-# cnf_k_sat = generate_k_sat(N, L, k)
-# cnf_mixed_k_sat = generate_mixed_k_sat(N, L)
-
-# # Print example CNF formulas
-# print("Random 3-SAT (first 5 clauses):", cnf_k_sat[:5])
-# print("Random Mixed k-SAT (first 5 clauses):", cnf_mixed_k_sat[:5])
-
 import matplotlib.pyplot as plt
 
 
@@ -141,10 +129,10 @@ def estimate_satisfiability_probability(N, L_ratios, M, k_max, mixed=False, seed
     plt.grid(True)
     plt.savefig("satisfiability_probability.png")
 
-
-# Example usage
-N = 15  # Number of variables
-L_ratios = np.linspace(1, 10, 20)  # L/N values from 1 to 100
-M = 1000  # Number of CNFs per L/N ratio
-k_max = 3  # Fixed clause length
-estimate_satisfiability_probability(N, L_ratios, M, k_max, mixed=True, seed=None)
+if __name__ == "__main__":
+    # Example usage
+    N = 15  # Number of variables
+    L_ratios = np.linspace(1, 10, 20)  # L/N values from 1 to 100
+    M = 1000  # Number of CNFs per L/N ratio
+    k_max = 3  # Fixed clause length
+    estimate_satisfiability_probability(N, L_ratios, M, k_max, mixed=True, seed=None)

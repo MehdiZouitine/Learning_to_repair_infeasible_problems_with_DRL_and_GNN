@@ -89,3 +89,7 @@ python train.py --env_type maxsat --gnn_architecture dka --weight uniform --num_
 python train.py --env_type maxsat --gnn_architecture gcnn --weight uniform --num_envs 32 --num_steps 128 --n_cons 19 --n_var 3 --k_max 3 --track
 
 ```
+
+## Acknowledgment 
+
+We acknowledge the support of the IRT Saint Exupéry MINDS project.

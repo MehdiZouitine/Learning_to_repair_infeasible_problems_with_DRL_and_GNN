@@ -1,10 +1,8 @@
 import torch
 import torch.nn as nn
-import math
 import torch.nn.functional as F
 import numpy as np
 from einops import rearrange
-
 from torch_geometric.data import Data
 from torch.distributions import Categorical
 from typing import Optional, Tuple
@@ -14,16 +12,26 @@ from utils import lp_to_matrix
 
 class Normalization(nn.Module):
     """
-    1D batch normalization for inputs of shape [*, C].
-    Applies batch normalization over the last dimension.
+    1D batch normalization for tensors of shape [*, C].
     """
 
     def __init__(self, feature_dim: int):
+        """
+        Args:
+            feature_dim: Size of the feature dimension to normalize.
+        """
         super().__init__()
         self.feature_dim = feature_dim
         self.norm = nn.BatchNorm1d(feature_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: Input tensor of shape [*, feature_dim].
+
+        Returns:
+            Normalized tensor with the same shape.
+        """
         size = x.size()
         return self.norm(x.reshape(-1, size[-1])).reshape(*size)
 
@@ -31,14 +39,6 @@ class Normalization(nn.Module):
 class Attention(nn.Module):
     """
     Multi-head self-attention module.
-
-    Args:
-        q_hidden_dim: Dimension of the query vectors.
-        k_dim: Dimension of key vectors per head.
-        v_dim: Dimension of value vectors per head.
-        n_head: Number of attention heads.
-        k_hidden_dim: Input dimension for keys (defaults to q_hidden_dim).
-        v_hidden_dim: Input dimension for values (defaults to q_hidden_dim).
     """
 
     def __init__(
@@ -50,10 +50,19 @@ class Attention(nn.Module):
         k_hidden_dim: Optional[int] = None,
         v_hidden_dim: Optional[int] = None
     ):
+        """
+        Args:
+            q_hidden_dim: Dimension of the query vectors.
+            k_dim: Dimension of key vectors per head.
+            v_dim: Dimension of value vectors per head.
+            n_head: Number of attention heads.
+            k_hidden_dim: Key input dimension (defaults to q_hidden_dim).
+            v_hidden_dim: Value input dimension (defaults to q_hidden_dim).
+        """
         super().__init__()
         self.q_hidden_dim = q_hidden_dim
-        self.k_hidden_dim = k_hidden_dim if k_hidden_dim else q_hidden_dim
-        self.v_hidden_dim = v_hidden_dim if v_hidden_dim else q_hidden_dim
+        self.k_hidden_dim = k_hidden_dim or q_hidden_dim
+        self.v_hidden_dim = v_hidden_dim or q_hidden_dim
         self.k_dim = k_dim
         self.v_dim = v_dim
         self.n_head = n_head
@@ -71,23 +80,21 @@ class Attention(nn.Module):
         mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """
-        Compute multi-head attention.
-
         Args:
-            q: [batch_size, n_node, hidden_dim]
-            k: Optional tensor of shape [batch_size, n_node, hidden_dim].
-            v: Optional tensor of shape [batch_size, n_node, hidden_dim].
-            mask: Optional mask tensor.
+            q: Query tensor [batch_size, n_node, hidden_dim].
+            k: Key tensor [batch_size, n_node, hidden_dim] (defaults to q).
+            v: Value tensor [batch_size, n_node, hidden_dim] (defaults to k).
+            mask: Optional mask.
 
         Returns:
-            Output tensor of shape [batch_size, n_node, hidden_dim].
+            Attention output tensor [batch_size, n_node, hidden_dim].
         """
         if k is None:
             k = q
         if v is None:
             v = k
 
-        bsz, n_node, hidden_dim = q.size()
+        bsz, n_node, _ = q.size()
 
         qs = torch.stack(
             torch.chunk(self.proj_q(q), self.n_head, dim=-1), dim=1
@@ -108,13 +115,12 @@ class Attention(nn.Module):
 
         att = torch.matmul(torch.softmax(u, dim=-1), vs)
         att = att.transpose(1, 2).reshape(bsz, n_node, self.v_dim * self.n_head)
-        att = self.proj_output(att)
-        return att
+        return self.proj_output(att)
 
 
 class DBALayer(nn.Module):
     """
-    One layer of the DBA (Dual Bipartite Attention) architecture.
+    Dual Bipartite Attention Layer (DBA).
     """
 
     def __init__(
@@ -125,8 +131,15 @@ class DBALayer(nn.Module):
         v_dim: int,
         n_head: int
     ):
+        """
+        Args:
+            hidden_dim: Hidden embedding dimension.
+            ff_dim: Feedforward layer dimension.
+            k_dim: Attention key dimension per head.
+            v_dim: Attention value dimension per head.
+            n_head: Number of attention heads.
+        """
         super().__init__()
-        self.hidden_dim = hidden_dim
 
         self.attention_var = Attention(hidden_dim, k_dim, v_dim, n_head)
         self.attention_cons = Attention(hidden_dim, k_dim, v_dim, n_head)
@@ -150,30 +163,29 @@ class DBALayer(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: Tensor of shape [batch, n_cons, n_vars, hidden_dim].
+            x: Tensor [batch_size, n_cons, n_var, hidden_dim].
 
         Returns:
-            Updated tensor with the same shape.
+            Updated tensor of the same shape.
         """
         B, K, N, H = x.size()
 
         x = rearrange(x, "b k n h -> (b k) n h")
         x = self.bn1_var(x + self.attention_var(x))
         x = self.bn2_var(x + self.ff_var(x))
-        x = rearrange(x, "(b k) n h -> b k n h", b=B, k=K, n=N, h=H)
+        x = rearrange(x, "(b k) n h -> b k n h", b=B, k=K, n=N)
 
         x = rearrange(x, "b k n h -> (b n) k h")
         x = self.bn1_cons(x + self.attention_cons(x))
         x = self.bn2_cons(x + self.ff_cons(x))
-        x = rearrange(x, "(b n) k h -> b k n h", b=B, k=K, n=N, h=H)
+        x = rearrange(x, "(b n) k h -> b k n h", b=B, k=K, n=N)
 
         return x
 
 
 class DBAAgent(nn.Module):
     """
-    DBAAgent implements a Deep Reinforcement Learning agent
-    using Dual Bipartite Attention layers.
+    Deep Reinforcement Learning agent using DBA layers.
     """
 
     def __init__(
@@ -187,8 +199,18 @@ class DBAAgent(nn.Module):
         n_layers: int,
         device: str
     ):
+        """
+        Args:
+            input_dim: Input feature dimension.
+            hidden_dim: Embedding dimension.
+            ff_dim: Feedforward layer dimension.
+            k_dim: Attention key dimension.
+            v_dim: Attention value dimension.
+            n_head: Number of attention heads.
+            n_layers: Number of DBA layers.
+            device: Device ("cpu" or "cuda").
+        """
         super().__init__()
-        self.input_dim = input_dim
         self.device = device
 
         self.projector = nn.Linear(input_dim, hidden_dim)
@@ -211,16 +233,17 @@ class DBAAgent(nn.Module):
         mask: torch.Tensor
     ) -> torch.Tensor:
         """
-        Compute the value function for the current observation.
+        Compute value estimate.
+
+        Args:
+            constraint_features: Constraint features [batch_size, n_cons, feat_dim].
+            edge_features: Edge features [batch_size, n_cons, n_var, edge_feat_dim].
+            mask: Mask tensor [batch_size, n_cons].
 
         Returns:
-            Value estimates of shape [batch_size, 1].
+            Value tensor [batch_size, 1].
         """
-        x = lp_to_matrix(
-            constraint_features=constraint_features,
-            edge_features=edge_features,
-            mask=mask
-        )
+        x = lp_to_matrix(constraint_features, edge_features, mask)
         x = self.projector(x)
         for layer in self.layers:
             x = layer(x)
@@ -236,19 +259,21 @@ class DBAAgent(nn.Module):
         action: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Compute the policy and value outputs for the given observation.
+        Compute policy action, log probability, entropy, and value.
+
+        Args:
+            constraint_features: Constraint features.
+            edge_features: Edge features.
+            mask: Mask.
+            action: Optional pre-specified action.
 
         Returns:
-            action: Selected actions.
-            log_prob: Log-probabilities of the actions.
-            entropy: Entropy of the action distribution.
-            value: Value estimate.
+            action: Selected action indices.
+            log_prob: Log probabilities.
+            entropy: Entropy values.
+            value: Value estimates.
         """
-        x = lp_to_matrix(
-            constraint_features=constraint_features,
-            edge_features=edge_features,
-            mask=mask
-        )
+        x = lp_to_matrix(constraint_features, edge_features, mask)
         x = self.projector(x)
         for layer in self.layers:
             x = layer(x)
@@ -256,7 +281,7 @@ class DBAAgent(nn.Module):
         cons_embedding = x.mean(dim=2)
         graph_embedding = cons_embedding.mean(dim=1)
         cons_logits = self.policy_head(cons_embedding).squeeze(-1)
-        cons_logits = cons_logits.masked_fill_(mask.bool(), float("-inf"))
+        cons_logits = cons_logits.masked_fill(mask.bool(), float("-inf"))
 
         dist = Categorical(logits=cons_logits)
         if action is None:
@@ -275,23 +300,24 @@ class DBAAgent(nn.Module):
         mask: torch.Tensor
     ) -> torch.Tensor:
         """
-        Forward pass computing the action logits.
+        Compute action logits for the given state.
+
+        Args:
+            constraint_features: Constraint features.
+            edge_features: Edge features.
+            mask: Mask.
 
         Returns:
-            Logits for each possible action.
+            Logits for actions.
         """
-        x = lp_to_matrix(
-            constraint_features=constraint_features,
-            edge_features=edge_features,
-            mask=mask
-        )
+        x = lp_to_matrix(constraint_features, edge_features, mask)
         x = self.projector(x)
         for layer in self.layers:
             x = layer(x)
 
         cons_embedding = x.mean(dim=2)
         cons_logits = self.policy_head(cons_embedding).squeeze(-1)
-        cons_logits = cons_logits.masked_fill_(mask.bool(), float("-inf"))
+        cons_logits = cons_logits.masked_fill(mask.bool(), float("-inf"))
         return cons_logits
 
 
@@ -322,5 +348,5 @@ if __name__ == "__main__":
     start = time.time()
     for trial in tqdm(range(1000)):
         action, log_prob, entropy, value = agent.get_action_and_value(x, mask)
-    print((time.time() - start) / 1000)
+    print(f"Average time per step: {(time.time() - start) / 1000:.6f} seconds")
     envs.close()

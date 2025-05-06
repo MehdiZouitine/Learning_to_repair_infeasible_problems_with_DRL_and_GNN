@@ -1,11 +1,10 @@
 import numpy as np
-from scipy.optimize import linprog
+from scipy.optimize import linprog, milp, LinearConstraint, Bounds
 from utils import (
     check_lp_feasibility,
     generate_random_lp,
     generate_random_infeasible_lp,
 )
-from scipy.optimize import milp, LinearConstraint, Bounds
 from tqdm import tqdm
 import time
 from typing import Callable, List, Tuple, Optional
@@ -18,7 +17,7 @@ def solve_elastic_lp(
     weights: np.ndarray
 ) -> Tuple[linprog, float]:
     """
-    Solve an elastic linear program with slack variables.
+    Solve an elastic linear program by adding slack variables.
 
     Args:
         c: Objective function coefficients (n,).
@@ -27,8 +26,8 @@ def solve_elastic_lp(
         weights: Slack variable penalties (m,).
 
     Returns:
-        result: scipy linprog result object.
-        Z: Optimal objective value.
+        result: Optimization result from scipy linprog.
+        Z: Objective value at the solution.
     """
     elastic_A_ub = np.concatenate((A_ub, -np.eye(len(b_ub))), axis=1)
     elastic_c = np.concatenate((c * 0, weights))
@@ -40,9 +39,7 @@ def solve_elastic_lp(
         method="highs",
         bounds=(0, None),
     )
-
-    Z = result.fun
-    return result, Z
+    return result, result.fun
 
 
 def elasticfilter(
@@ -51,19 +48,23 @@ def elasticfilter(
     weights: np.ndarray
 ) -> Tuple[linprog, float]:
     """
-    Solve an elastic LP for feasibility checking.
+    Run an elastic LP feasibility filter.
+
+    Args:
+        A_ub: Inequality matrix.
+        b_ub: RHS vector.
+        weights: Slack penalties.
 
     Returns:
-        result: linprog result.
-        fval: objective value.
+        result: linprog output.
+        fval: Objective value.
     """
-    result, fval = solve_elastic_lp(
+    return solve_elastic_lp(
         c=np.zeros(A_ub.shape[1]),
         A_ub=A_ub,
         b_ub=b_ub,
         weights=weights
     )
-    return result, fval
 
 
 def create_candidate_set(
@@ -74,11 +75,20 @@ def create_candidate_set(
     weights: Optional[np.ndarray] = None
 ) -> List[int]:
     """
-    Identify active elastic constraints (non-zero elastic variables).
+    Find constraints with positive slack variables.
+
+    Args:
+        result: linprog output.
+        activeA: Active constraints mask.
+        idx2: Active indices.
+        k: Not used.
+        weights: Not used.
+
+    Returns:
+        List of violated constraint indices.
     """
-    elastic_variables = result.x[-activeA.sum():]
-    ineq_iis = idx2[elastic_variables > 0]
-    return ineq_iis.tolist()
+    elastic_vars = result.x[-activeA.sum():]
+    return idx2[elastic_vars > 0].tolist()
 
 
 def create_candidate_set_1(
@@ -89,15 +99,18 @@ def create_candidate_set_1(
     weights: Optional[np.ndarray] = None
 ) -> List[int]:
     """
-    Candidate set based on most violated constraints.
+    Select top-k most violated constraints.
+
+    Returns:
+        Indices of k most violated constraints.
     """
-    elastic_variables = result.x[-activeA.sum():]
+    elastic_vars = result.x[-activeA.sum():]
     dual_prices = result.ineqlin["marginals"][-activeA.sum():]
 
     violated = [
-        (idx2[i], weights[idx2[i]] * elastic_variables[i] * abs(dual_prices[i]))
-        for i in range(len(elastic_variables))
-        if elastic_variables[i] > 0
+        (idx2[i], weights[idx2[i]] * elastic_vars[i] * abs(dual_prices[i]))
+        for i in range(len(elastic_vars))
+        if elastic_vars[i] > 0
     ]
 
     violated = sorted(violated, key=lambda x: -x[1])[:k]
@@ -112,15 +125,18 @@ def create_candidate_set_2(
     weights: Optional[np.ndarray] = None
 ) -> List[int]:
     """
-    Candidate set based on satisfied constraints with highest dual prices.
+    Select top-k satisfied constraints with largest dual prices.
+
+    Returns:
+        Indices of k satisfied constraints.
     """
-    elastic_variables = result.x[-activeA.sum():]
+    elastic_vars = result.x[-activeA.sum():]
     dual_prices = result.ineqlin["marginals"][-activeA.sum():]
 
     satisfied = [
         (idx2[i], weights[idx2[i]] * abs(dual_prices[i]))
-        for i in range(len(elastic_variables))
-        if elastic_variables[i] == 0 and abs(dual_prices[i]) > 0
+        for i in range(len(elastic_vars))
+        if elastic_vars[i] == 0 and abs(dual_prices[i]) > 0
     ]
 
     satisfied = sorted(satisfied, key=lambda x: -x[1])[:k]
@@ -135,10 +151,17 @@ def generate_cover(
     weights: Optional[np.ndarray] = None
 ) -> Tuple[List[int], int]:
     """
-    Generate a cover set of constraints using an iterative deletion algorithm.
+    Compute a cover set using a deletion-based iterative algorithm.
+
+    Args:
+        A_ub: Inequality matrix.
+        b_ub: RHS vector.
+        create_candidate_set_func: Function to select candidate constraints.
+        k: Number of candidates per iteration.
+        weights: Constraint weights.
 
     Returns:
-        coverset: List of constraints in the cover set.
+        coverset: Selected cover set indices.
         nlp: Number of LP solves performed.
     """
     coverset = []
@@ -198,7 +221,16 @@ def big_m_coverset(
     weights: np.ndarray
 ) -> Tuple[List[int], Optional[int]]:
     """
-    Find a cover set using a Big-M MILP formulation.
+    Find a cover set using a Big-M MILP.
+
+    Args:
+        A: Constraint matrix.
+        b: RHS vector.
+        weights: Constraint weights.
+
+    Returns:
+        coverset: Selected constraints.
+        nlp: None (not applicable to MILP).
     """
     m, n = A.shape
     M = 1e6
@@ -211,12 +243,10 @@ def big_m_coverset(
         lb=np.zeros(n + m),
         ub=np.concatenate([np.full(n, np.inf), np.ones(m)])
     )
-
     integrality = np.concatenate([np.zeros(n), np.ones(m)])
     constraints = LinearConstraint(A_constraint, ub=b)
 
     res = milp(c=c, constraints=constraints, integrality=integrality, bounds=bounds)
-
     y_values = res.x[n:]
     coverset = np.where(y_values > 0.5)[0]
 
@@ -229,13 +259,18 @@ def grow(
     weights: np.ndarray
 ) -> Tuple[List[int], int]:
     """
-    Grow method: Greedily build maximal feasible subsystems (MFS).
+    Grow method (Bailey & Stuckey): Incrementally build maximal feasible subsystem.
+
+    Args:
+        A: Constraint matrix.
+        b: RHS vector.
+        weights: Constraint weights.
 
     Returns:
-        coverset: List of removed constraints.
-        nlp: Total LP checks performed.
+        coverset: Removed constraints.
+        nlp: Number of LP checks.
     """
-    m, n = A.shape
+    m, _ = A.shape
     constraint_set = set()
     coverset = []
     for i in range(m):
@@ -256,13 +291,20 @@ def compute_baseline(
     weights: str = "const"
 ) -> Tuple[float, float, float, Optional[float]]:
     """
-    Evaluate a baseline method on multiple random infeasible LP instances.
+    Evaluate a cover set algorithm across multiple infeasible LPs.
+
+    Args:
+        batch_size: Number of problem instances.
+        c: Number of constraints per instance.
+        v: Number of variables per instance.
+        method_name: Algorithm name ("Deletion", "Opt", "Chinneck", "Chinneck-Fast").
+        weights: Weight type ("const" or "uniform").
 
     Returns:
         avg_size: Mean cover set weight.
-        std_size: Std dev of cover set weight.
-        avg_time: Average runtime per instance.
-        avg_nlp: Average number of LPs solved (if applicable).
+        std_size: Standard deviation.
+        avg_time: Mean runtime.
+        avg_nlp: Mean LP count (None for MILP).
     """
     size = []
     times = []

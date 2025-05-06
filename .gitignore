@@ -7,3 +7,5 @@ MAXFS
 *.ipynb
 *.ipynb_checkpoint
 LearningToRepairDRL.egg-info
+eda.py
+sat_phase_transition.py

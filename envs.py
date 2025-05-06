@@ -14,18 +14,24 @@ BASE_SEED = 10000
 
 class MAXFSEnv(gym.Env):
     """
-    MAXFS Environment (Maximum Feasible Subsystem) for LP problems.
+    MAXFS Environment (Maximum Feasible Subsystem) for Linear Programming problems.
 
     Observation space:
         - edge_features: [n_cons, n_var, 1]
-        - constraint_features: [n_cons, 3] -> [weight, RHS scaled, active]
-        - mask: binary mask for chosen constraints
+        - constraint_features: [n_cons, 3] -> [weight, RHS scaled, active indicator]
+        - mask: binary mask indicating chosen constraints.
 
     Action space:
-        - Discrete selection of constraints to remove.
+        - Discrete selection of constraints to remove (index 0 to n_cons - 1).
     """
 
     def __init__(self, n_cons: int, n_var: int, weight: str = "const"):
+        """
+        Args:
+            n_cons: Number of constraints.
+            n_var: Number of variables.
+            weight: 'const' or 'uniform' weighting scheme.
+        """
         self.n_cons = n_cons
         self.n_var = n_var
         self.weight = weight
@@ -45,12 +51,16 @@ class MAXFSEnv(gym.Env):
 
     def reset(self, seed: Optional[int] = None, options=None) -> Tuple[Dict, Dict]:
         """
-        Reset environment with new random infeasible LP.
+        Reset the environment with a new random infeasible LP.
+
+        Args:
+            seed: Optional random seed.
 
         Returns:
-            observation, info dict (empty).
+            observation: Dict containing edge_features, constraint_features, and mask.
+            info: Empty dict.
         """
-        self.current_set_matrix = np.ones((self.n_cons))
+        self.current_set_matrix = np.ones(self.n_cons)
 
         self.c, self.A_ub, self.b_ub, self.constraint_weight = generate_random_infeasible_lp(
             1, self.n_var, self.n_cons, weight=self.weight, seed=seed
@@ -60,7 +70,6 @@ class MAXFSEnv(gym.Env):
         self.constraint_weight = self.constraint_weight[0]
 
         self.mask = np.zeros(self.n_cons, dtype=int)
-
         self.edge_features = self.A_ub[:, :, np.newaxis].copy() / 100
 
         self.constraint_features = np.zeros((self.n_cons, 3))
@@ -80,8 +89,15 @@ class MAXFSEnv(gym.Env):
 
         Reward is the negative weight of the removed constraint.
 
+        Args:
+            action: Index of the constraint to remove.
+
         Returns:
-            observation, reward, done, truncated, info
+            observation: Updated observation.
+            reward: Reward for the action taken.
+            done: True if a feasible subsystem is found or all constraints have been removed.
+            truncated: Always False (no time limits).
+            info: Empty dict.
         """
         self.mask[action] = 1
 
@@ -115,18 +131,25 @@ class MAXFSEnv(gym.Env):
 
 class MAXSATEnv(gym.Env):
     """
-    MAXSAT Environment for CNF SAT problems.
+    MAXSAT Environment for Boolean CNF satisfiability problems.
 
     Observation space:
         - edge_features: [n_cons, n_var, 1]
-        - constraint_features: [n_cons, 2] -> [weight, active]
-        - mask: binary mask for chosen clauses
+        - constraint_features: [n_cons, 2] -> [weight, active indicator]
+        - mask: binary mask indicating chosen clauses.
 
     Action space:
         - Discrete selection of clauses to remove.
     """
 
     def __init__(self, n_cons: int, n_var: int, k_max: int, weight: str = "const"):
+        """
+        Args:
+            n_cons: Number of clauses.
+            n_var: Number of variables.
+            k_max: Maximum literals per clause.
+            weight: 'const' or 'uniform' weighting scheme.
+        """
         self.n_cons = n_cons
         self.n_var = n_var
         self.k_max = k_max
@@ -147,12 +170,16 @@ class MAXSATEnv(gym.Env):
 
     def reset(self, seed: Optional[int] = None, options=None) -> Tuple[Dict, Dict]:
         """
-        Reset environment with a new random infeasible CNF.
+        Reset the environment with a new random infeasible CNF.
+
+        Args:
+            seed: Optional random seed.
 
         Returns:
-            observation, info dict (empty).
+            observation: Dict containing edge_features, constraint_features, and mask.
+            info: Empty dict.
         """
-        self.current_set_matrix = np.ones((self.n_cons))
+        self.current_set_matrix = np.ones(self.n_cons)
 
         self.cnf_example, self.constraint_weight = generate_random_infeasible_cnf(
             num_clauses=self.n_cons,
@@ -163,7 +190,6 @@ class MAXSATEnv(gym.Env):
         )
 
         self.mat = cnf_to_matrix(cnf=self.cnf_example, num_variables=self.n_var)
-
         self.mask = np.zeros(self.n_cons, dtype=int)
 
         self.edge_features = self.mat[:, :, np.newaxis].copy()
@@ -184,8 +210,15 @@ class MAXSATEnv(gym.Env):
 
         Reward is the negative weight of the removed clause.
 
+        Args:
+            action: Index of the clause to remove.
+
         Returns:
-            observation, reward, done, truncated, info
+            observation: Updated observation.
+            reward: Reward for the action taken.
+            done: True if a satisfiable subset is found or all clauses removed.
+            truncated: Always False (no time limits).
+            info: Empty dict.
         """
         self.mask[action] = 1
 
@@ -230,11 +263,11 @@ if __name__ == "__main__":
         k = 0
         while not done:
             mask = obs["mask"]
-            action = np.random.choice(np.argwhere(mask == 0).flatten())
+            action = np.random.choice(np.flatnonzero(mask == 0))
             obs, reward, done, _, _ = env.step(action)
             r += reward
             k += 1
         all_r.append(r)
 
-    print(f"Mean episodic reward: {np.mean(all_r)}")
-    print(f"Std episodic reward: {np.std(all_r)}")
+    print(f"Mean episodic reward: {np.mean(all_r):.3f}")
+    print(f"Std episodic reward: {np.std(all_r):.3f}")

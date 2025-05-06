@@ -9,18 +9,27 @@ from utils import lp_to_graph
 
 
 class PreNormException(Exception):
-    """Custom exception used for interrupting forward passes during pre-normalization stats collection."""
+    """
+    Custom exception used for interrupting forward passes during pre-normalization stats collection.
+    """
     pass
 
 
 class PreNormLayer(nn.Module):
     """
-    Applies affine transformation using precomputed shift and scale parameters.
+    Applies an affine transformation using precomputed shift and scale parameters.
 
     This is useful for pre-normalizing input features before training.
     """
 
     def __init__(self, n_units: int, shift: bool = True, scale: bool = True, name: Optional[str] = None):
+        """
+        Args:
+            n_units: Number of input units.
+            shift: Whether to apply a shift (bias).
+            scale: Whether to apply scaling.
+            name: Optional name (not used here but kept for compatibility).
+        """
         super().__init__()
         assert shift or scale
         self.register_buffer("shift", torch.zeros(n_units) if shift else None)
@@ -30,6 +39,13 @@ class PreNormLayer(nn.Module):
         self.received_updates = False
 
     def forward(self, input_: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            input_: Input tensor [..., n_units].
+
+        Returns:
+            Normalized tensor.
+        """
         if self.waiting_updates:
             self.update_stats(input_)
             self.received_updates = True
@@ -51,7 +67,12 @@ class PreNormLayer(nn.Module):
         self.received_updates = False
 
     def update_stats(self, input_: torch.Tensor):
-        """Updates online mean and variance estimates."""
+        """
+        Update online mean and variance estimates from the input.
+
+        Args:
+            input_: Input tensor.
+        """
         assert input_.shape[-1] == self.n_units or self.n_units == 1
         input_ = input_.reshape(-1, self.n_units)
         sample_avg = input_.mean(dim=0)
@@ -69,7 +90,7 @@ class PreNormLayer(nn.Module):
         self.var = self.m2 / self.count if self.count > 0 else 1
 
     def stop_updates(self):
-        """Stops updates and freezes normalization parameters."""
+        """Stop updating statistics and freeze normalization parameters."""
         assert self.count > 0
         if self.shift is not None:
             self.shift = -self.avg
@@ -87,6 +108,10 @@ class BipartiteGraphConvolution(torch_geometric.nn.MessagePassing):
     """
 
     def __init__(self, emb_size: int):
+        """
+        Args:
+            emb_size: Embedding dimension.
+        """
         super().__init__("add")
         self.feature_module_left = nn.Linear(emb_size, emb_size)
         self.feature_module_edge = nn.Linear(1, emb_size, bias=False)
@@ -113,7 +138,11 @@ class BipartiteGraphConvolution(torch_geometric.nn.MessagePassing):
         right_features: torch.Tensor
     ) -> torch.Tensor:
         """
-        Perform message passing and aggregate information into right_features.
+        Args:
+            left_features: Left node embeddings [n_left, emb_size].
+            edge_indices: Edge index tensor [2, num_edges].
+            edge_features: Edge attributes [num_edges, 1].
+            right_features: Right node embeddings [n_right, emb_size].
 
         Returns:
             Updated right node features.
@@ -136,6 +165,9 @@ class BipartiteGraphConvolution(torch_geometric.nn.MessagePassing):
     ) -> torch.Tensor:
         """
         Compute messages passed from node i to node j.
+
+        Returns:
+            Messages for node j.
         """
         return self.feature_module_final(
             self.feature_module_left(node_features_i) +
@@ -147,17 +179,18 @@ class BipartiteGraphConvolution(torch_geometric.nn.MessagePassing):
 class GNNEncoder(nn.Module):
     """
     GNN Encoder for bipartite graphs of constraints and variables.
-
-    Args:
-        cons_nfeats: Number of constraint features.
-        edge_nfeats: Number of edge features.
-        var_nfeats: Number of variable features.
-        emb_size: Size of the embeddings.
-        n_layers: Number of GNN layers.
     """
 
     def __init__(self, cons_nfeats: int, edge_nfeats: int, var_nfeats: int,
                  emb_size: int, n_layers: int = 4):
+        """
+        Args:
+            cons_nfeats: Constraint feature dimension.
+            edge_nfeats: Edge feature dimension.
+            var_nfeats: Variable feature dimension.
+            emb_size: Embedding dimension.
+            n_layers: Number of message passing layers.
+        """
         super().__init__()
 
         self.cons_embedding = nn.Sequential(
@@ -191,10 +224,16 @@ class GNNEncoder(nn.Module):
         variable_features: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Perform message passing for a given bipartite graph.
+        Message passing for a bipartite graph.
+
+        Args:
+            constraint_features: [n_constraints, cons_nfeats].
+            edge_indices: [2, num_edges].
+            edge_features: [num_edges, edge_nfeats].
+            variable_features: [n_variables, var_nfeats].
 
         Returns:
-            Updated constraint and variable features.
+            Updated constraint features and variable features.
         """
         reversed_edge_indices = torch.stack([edge_indices[1], edge_indices[0]], dim=0)
 
@@ -217,7 +256,7 @@ class GNNEncoder(nn.Module):
 
 class BipartiteAgent(nn.Module):
     """
-    Reinforcement learning agent using GNN encoder for bipartite graphs.
+    Reinforcement learning agent using a GNN encoder for bipartite graphs.
     """
 
     def __init__(
@@ -229,6 +268,15 @@ class BipartiteAgent(nn.Module):
         n_layers: int = 4,
         device: str = "cpu"
     ):
+        """
+        Args:
+            cons_nfeats: Constraint feature dimension.
+            edge_nfeats: Edge feature dimension.
+            var_nfeats: Variable feature dimension.
+            emb_size: Embedding size.
+            n_layers: Number of message passing layers.
+            device: 'cpu' or 'cuda'.
+        """
         super().__init__()
         self.encoder = GNNEncoder(
             cons_nfeats, edge_nfeats, var_nfeats, emb_size, n_layers
@@ -252,10 +300,15 @@ class BipartiteAgent(nn.Module):
         mask: torch.Tensor
     ) -> torch.Tensor:
         """
-        Compute value estimates for a batch of observations.
+        Compute value estimate for each batch element.
+
+        Args:
+            constraint_features: [batch_size, n_cons, cons_feat_dim].
+            edge_features: [batch_size, n_cons, n_var, edge_feat_dim].
+            mask: [batch_size, n_cons].
 
         Returns:
-            Value tensor of shape [batch_size, 1].
+            Value tensor [batch_size, 1].
         """
         batch_size, n_const = mask.shape
         graph = lp_to_graph(constraint_features, edge_features, mask)
@@ -268,8 +321,7 @@ class BipartiteAgent(nn.Module):
         )
         constraint_features = constraint_features.view(batch_size, n_const, -1)
         graph_embedding = constraint_features.mean(dim=1)
-        value = self.value_head(graph_embedding)
-        return value
+        return self.value_head(graph_embedding)
 
     def get_action_and_value(
         self,
@@ -279,10 +331,16 @@ class BipartiteAgent(nn.Module):
         action: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Sample an action and compute value estimates and log probabilities.
+        Sample an action and compute log probability, entropy, and value.
+
+        Args:
+            constraint_features: Constraint features.
+            edge_features: Edge features.
+            mask: Mask.
+            action: Optional action (if given, no sampling).
 
         Returns:
-            action, log_prob, entropy, value
+            action, log_prob, entropy, value.
         """
         batch_size, n_const = mask.shape
         graph = lp_to_graph(constraint_features, edge_features, mask)
@@ -299,12 +357,12 @@ class BipartiteAgent(nn.Module):
         cons_logits = self.policy_head(constraint_features).squeeze(-1)
         cons_logits = cons_logits.masked_fill(mask.bool(), float("-inf"))
 
-        mass = Categorical(logits=cons_logits)
+        dist = Categorical(logits=cons_logits)
         if action is None:
-            action = mass.sample()
+            action = dist.sample()
 
-        log_prob = mass.log_prob(action)
-        entropy = mass.entropy()
+        log_prob = dist.log_prob(action)
+        entropy = dist.entropy()
         value = self.value_head(graph_embedding)
 
         return action, log_prob, entropy, value
@@ -316,10 +374,15 @@ class BipartiteAgent(nn.Module):
         mask: torch.Tensor
     ) -> torch.Tensor:
         """
-        Compute logits for all actions.
+        Compute logits for possible actions.
+
+        Args:
+            constraint_features: Constraint features.
+            edge_features: Edge features.
+            mask: Mask.
 
         Returns:
-            Logits tensor of shape [batch_size, n_constraints].
+            Logits for each constraint/action.
         """
         batch_size, n_const = mask.shape
         graph = lp_to_graph(constraint_features, edge_features, mask)

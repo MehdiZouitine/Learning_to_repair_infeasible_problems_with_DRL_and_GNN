@@ -19,6 +19,7 @@ setup(
         "einops",
         "torch_geometric",
         "scipy",
+        "matplotlib",
     ],
     python_requires=">=3.8",
 )
